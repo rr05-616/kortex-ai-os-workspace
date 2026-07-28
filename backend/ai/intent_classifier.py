@@ -22,28 +22,31 @@ _INTENT_PATTERNS: list[tuple[IntentType, list[str]]] = [
         r"^(why\?|how\?|what about|should i|can you|could you|would you)\b",
     ]),
     (IntentType.RISK_ANALYSIS, [
-        r"\b(risk|block|blocked|issue|problem|stuck|danger|warning|overdue|delayed|bottleneck|critical|fail)\b",
+        r"\b(risks?|block|blocked|issues?|problems?|stuck|danger|warning|overdue|delayed|bottleneck|critical|fail)\b",
     ]),
     (IntentType.TASK_RECOMMENDATION, [
         r"\b(what should i|recommend|suggest|priorit|next task|work on|start with|focus on)\b",
     ]),
     (IntentType.PROJECT_STATUS, [
-        r"\b(progress|status|stage|how.*(going|is)|completion|health|where.*(stand|are)|overview)\b",
+        r"\b(progress|status|stage|how\s+(is|are|going)|completion|where.*(stand|are)|overview)\b",
+    ]),
+    (IntentType.ROADMAP, [
+        r"\b(roadmap|timeline|future plan|plan ahead|what.*(next|coming))\b",
     ]),
     (IntentType.SPRINT_PLANNING, [
-        r"\b(sprint|plan|roadmap|backlog|milestone|release|velocity|sprint plan)\b",
+        r"\b(sprint|backlog|milestone|release|velocity|sprint plan)\b",
     ]),
     (IntentType.TASK_BREAKDOWN, [
         r"\b(break down|breakdown|subtask|sub-task|decompose|split task|divide)\b",
     ]),
     (IntentType.ARCHITECTURE_REVIEW, [
-        r"\b(architect|structure|folder|file tree|component|service|module|tech stack|design pattern)\b",
+        r"\b(architect|architecture|structure|folder|file tree|design pattern|tech stack)\b",
     ]),
     (IntentType.CODE_REVIEW, [
-        r"\b(code review|review code|check code|inspect|audit code|code quality)\b",
+        r"\b(code review|review code|check code|inspect|audit code|code quality|review.*(code|my code))\b",
     ]),
     (IntentType.IMPLEMENTATION_GUIDE, [
-        r"\b(how (do|to|does)|implement|build|create|setup|initialize|configure|write)\b",
+        r"\b(how (do|to|does) (i|we|to)|implement|build|create|setup|initialize|configure|write)\b",
     ]),
     (IntentType.HOW_TO, [
         r"\b(how (do i|can i|to)|tutorial|guide|steps for|walkthrough)\b",
@@ -66,9 +69,7 @@ _INTENT_PATTERNS: list[tuple[IntentType, list[str]]] = [
     (IntentType.PROJECT_HEALTH, [
         r"\b(health|healthy|score|rating|quality|technical debt|code smell)\b",
     ]),
-    (IntentType.ROADMAP, [
-        r"\b(roadmap|timeline|milestone|future|plan ahead|what.*(next|coming))\b",
-    ]),
+
     (IntentType.GENERAL_AI, [
         r"\b(explain|what is|what are|define|tell me about|difference between|compare)\b",
     ]),
@@ -77,10 +78,10 @@ _INTENT_PATTERNS: list[tuple[IntentType, list[str]]] = [
     ]),
 ]
 
-_GREETING_WORDS = {
-    "hello", "hi", "hey", "good morning", "good afternoon", "good evening",
-    "sup", "yo", "howdy", "greetings", "hola",
-}
+_GREETING_PATTERN = re.compile(
+    r"\b(hello|hi|hey|good\s*morning|good\s*afternoon|good\s*evening|sup|yo|howdy|greetings|hola)\b",
+    re.IGNORECASE,
+)
 
 
 class IntentClassifier:
@@ -95,27 +96,39 @@ class IntentClassifier:
         msg = message.lower().strip()
         logger.info("intent_classifier.classify", message=msg[:80])
 
-        # Check greeting first (highest priority)
-        if any(g in msg for g in _GREETING_WORDS):
-            return IntentResult(
-                intent=IntentType.GREETING,
-                confidence=0.95,
-                raw_message=message,
-            )
+        # Check if the message is ONLY a greeting (standalone greeting)
+        is_standalone_greeting = bool(_GREETING_PATTERN.fullmatch(msg))
 
-        # Check each intent pattern
+        # Check each intent pattern — track ALL matches, pick highest confidence
         best_intent = IntentType.UNKNOWN
         best_confidence = 0.0
+        greeting_matched = False
 
         for intent_type, patterns in _INTENT_PATTERNS:
             for pattern in patterns:
                 if re.search(pattern, msg, re.IGNORECASE):
                     # Calculate confidence based on specificity
                     confidence = self._compute_confidence(intent_type, msg, pattern)
+                    if intent_type == IntentType.GREETING:
+                        greeting_matched = True
                     if confidence > best_confidence:
                         best_confidence = confidence
                         best_intent = intent_type
                     break  # One match per intent type is enough
+
+        # Only return greeting if it's a standalone greeting or the sole match
+        if greeting_matched and best_intent != IntentType.GREETING:
+            # Another more specific intent won — prefer it
+            pass
+        elif greeting_matched and is_standalone_greeting:
+            best_intent = IntentType.GREETING
+            best_confidence = 0.95
+        elif greeting_matched and not is_standalone_greeting:
+            # Greeting word present but message has more content —
+            # only keep greeting if nothing else matched
+            if best_intent == IntentType.UNKNOWN or best_confidence < 0.5:
+                best_intent = IntentType.GREETING
+                best_confidence = 0.6
 
         # Detect follow-up from conversation context
         if best_intent == IntentType.UNKNOWN and conversation_history:
@@ -154,17 +167,19 @@ class IntentClassifier:
             IntentType.GREETING: 0.95,
             IntentType.THANK_YOU: 0.90,
             IntentType.RISK_ANALYSIS: 0.85,
-            IntentType.TASK_RECOMMENDATION: 0.80,
-            IntentType.PROJECT_STATUS: 0.80,
+            IntentType.TASK_RECOMMENDATION: 0.85,
+            IntentType.PROJECT_STATUS: 0.75,
+            IntentType.PROJECT_HEALTH: 0.85,
             IntentType.SPRINT_PLANNING: 0.85,
-            IntentType.ARCHITECTURE_REVIEW: 0.80,
-            IntentType.CODE_REVIEW: 0.80,
-            IntentType.IMPLEMENTATION_GUIDE: 0.75,
-            IntentType.HOW_TO: 0.75,
-            IntentType.PERFORMANCE: 0.80,
-            IntentType.SECURITY: 0.80,
+            IntentType.ARCHITECTURE_REVIEW: 0.85,
+            IntentType.CODE_REVIEW: 0.85,
+            IntentType.IMPLEMENTATION_GUIDE: 0.85,
+            IntentType.HOW_TO: 0.85,
+            IntentType.PERFORMANCE: 0.85,
+            IntentType.SECURITY: 0.85,
             IntentType.FOLLOW_UP: 0.70,
             IntentType.EXECUTE_ACTION: 0.75,
+            IntentType.ROADMAP: 0.85,
             IntentType.GENERAL_AI: 0.50,
         }.get(intent_type, 0.50)
 

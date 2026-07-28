@@ -223,6 +223,8 @@ class ChatResponse(BaseModel):
     confidence: float = 0.0
     conversation_id: str = ""
     timestamp: str = Field(default_factory=lambda: datetime.now().isoformat())
+    tools_used: list[str] = []
+    reasoning: str = ""
     metadata: dict = {}
 
 

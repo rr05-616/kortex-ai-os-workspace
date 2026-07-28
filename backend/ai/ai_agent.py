@@ -143,6 +143,8 @@ class AIAgent:
             intent=intent.intent.value,
             confidence=intent.confidence,
             conversation_id=conversation_id,
+            tools_used=[t.tool_name for t in tools],
+            reasoning=analysis.recommendations[0] if analysis.recommendations else "",
             metadata=formatted.metadata,
         )
 
