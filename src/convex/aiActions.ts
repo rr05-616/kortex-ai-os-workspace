@@ -768,6 +768,7 @@ export const generateResponse = action({
           { projectId: args.projectId }
         );
         if (analyses && analyses.length > 0) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           context.analyses = analyses.map((a: any) => ({
             url: a.url,
             name: a.repoInfo?.name ?? "Repository",

@@ -275,8 +275,11 @@ export const createConversation = mutation({
  * The agent NEVER answers without this context.
  */
  
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function gatherWorkspaceContext(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   ctx: any,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   userId: any,
   projectId?: string
 ) {

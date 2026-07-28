@@ -32,11 +32,6 @@ interface RepoInfo {
   defaultBranch: string;
 }
 
-interface FileInfo {
-  path: string;
-  type: string;
-  content?: string;
-}
 
 /** Fetch GitHub repository info */
 async function fetchGitHubRepo(owner: string, repo: string): Promise<RepoInfo> {

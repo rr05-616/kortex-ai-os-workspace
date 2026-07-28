@@ -19,7 +19,6 @@ import {
   Kanban,
   BarChart3,
   Users,
-  Clock,
   TrendingUp,
   CheckCircle2,
   AlertCircle,
