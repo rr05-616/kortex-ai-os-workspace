@@ -40,76 +40,107 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+  
+  /* Custom KORTEX AI tokens */
+  --color-green: var(--green);
+  --color-green-light: var(--green-light);
+  --color-green-dark: var(--green-dark);
+  --color-glass-bg: var(--glass-bg);
+  --color-glass-border: var(--glass-border);
+  --color-glass-hover: var(--glass-hover);
+  --color-surface: var(--surface);
+  --color-surface-secondary: var(--surface-secondary);
 }
 
 /* CHANGE VALUES FOR THEME */
 :root {
-  --radius: 0.625rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --radius: 1rem;
+  
+  /* KORTEX AI Royal Green Light Glassmorphism Theme */
+  --background: #F5F5F7;
+  --foreground: #1A1A2E;
+  --card: rgba(255, 255, 255, 0.7);
+  --card-foreground: #1A1A2E;
+  --popover: rgba(255, 255, 255, 0.85);
+  --popover-foreground: #1A1A2E;
+  --primary: #0E9F6E;
+  --primary-foreground: #FFFFFF;
+  --secondary: #E8F5EE;
+  --secondary-foreground: #0E9F6E;
+  --muted: #F0F1F3;
+  --muted-foreground: #8E8EA0;
+  --accent: #E8F5EE;
+  --accent-foreground: #0E9F6E;
+  --destructive: #E74C3C;
+  --border: rgba(0, 0, 0, 0.06);
+  --input: rgba(0, 0, 0, 0.06);
+  --ring: #0E9F6E;
+  --chart-1: #0E9F6E;
+  --chart-2: #2ECC71;
+  --chart-3: #18C37E;
+  --chart-4: #34D399;
+  --chart-5: #0C8A5F;
+  --sidebar: rgba(255, 255, 255, 0.75);
+  --sidebar-foreground: #1A1A2E;
+  --sidebar-primary: #0E9F6E;
+  --sidebar-primary-foreground: #FFFFFF;
+  --sidebar-accent: #E8F5EE;
+  --sidebar-accent-foreground: #0E9F6E;
+  --sidebar-border: rgba(0, 0, 0, 0.06);
+  --sidebar-ring: #0E9F6E;
+  
+  /* Custom KORTEX AI tokens */
+  --green: #0E9F6E;
+  --green-light: #18C37E;
+  --green-dark: #0C8A5F;
+  --glass-bg: rgba(255, 255, 255, 0.6);
+  --glass-border: rgba(0, 0, 0, 0.06);
+  --glass-hover: rgba(255, 255, 255, 0.8);
+  --surface: #FFFFFF;
+  --surface-secondary: #F0F1F3;
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  --background: #0A0A0F;
+  --foreground: #F0F0F5;
+  --card: rgba(255, 255, 255, 0.04);
+  --card-foreground: #F0F0F5;
+  --popover: rgba(20, 20, 30, 0.85);
+  --popover-foreground: #F0F0F5;
+  --primary: #0E9F6E;
+  --primary-foreground: #FFFFFF;
+  --secondary: rgba(14, 159, 110, 0.15);
+  --secondary-foreground: #18C37E;
+  --muted: rgba(255, 255, 255, 0.04);
+  --muted-foreground: #8E8EA0;
+  --accent: rgba(14, 159, 110, 0.12);
+  --accent-foreground: #18C37E;
+  --destructive: #E74C3C;
+  --border: rgba(255, 255, 255, 0.06);
+  --input: rgba(255, 255, 255, 0.06);
+  --ring: #0E9F6E;
+  --chart-1: #0E9F6E;
+  --chart-2: #2ECC71;
+  --chart-3: #18C37E;
+  --chart-4: #34D399;
+  --chart-5: #0C8A5F;
+  --sidebar: rgba(20, 20, 30, 0.75);
+  --sidebar-foreground: #F0F0F5;
+  --sidebar-primary: #0E9F6E;
+  --sidebar-primary-foreground: #FFFFFF;
+  --sidebar-accent: rgba(14, 159, 110, 0.15);
+  --sidebar-accent-foreground: #18C37E;
+  --sidebar-border: rgba(255, 255, 255, 0.06);
+  --sidebar-ring: #0E9F6E;
+  
+  --green: #0E9F6E;
+  --green-light: #18C37E;
+  --green-dark: #0C8A5F;
+  --glass-bg: rgba(255, 255, 255, 0.04);
+  --glass-border: rgba(255, 255, 255, 0.06);
+  --glass-hover: rgba(255, 255, 255, 0.08);
+  --surface: rgba(255, 255, 255, 0.03);
+  --surface-secondary: rgba(255, 255, 255, 0.02);
 }
 
 @layer base {
@@ -118,9 +149,100 @@
   }
   body {
     @apply bg-background text-foreground;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
   button:not([disabled]),
   [role="button"]:not([disabled]) {
     cursor: pointer;
   }
+}
+
+/* KORTEX AI-specific utility classes */
+@layer utilities {
+  .glass {
+    background: var(--glass-bg);
+    backdrop-filter: blur(45px) saturate(180%);
+    -webkit-backdrop-filter: blur(45px) saturate(180%);
+    border: 1px solid var(--glass-border);
+  }
+  
+  .glass-light {
+    background: rgba(255, 255, 255, 0.5);
+    backdrop-filter: blur(30px) saturate(160%);
+    -webkit-backdrop-filter: blur(30px) saturate(160%);
+    border: 1px solid rgba(0, 0, 0, 0.04);
+  }
+  
+  .glass-card {
+    background: rgba(255, 255, 255, 0.6);
+    backdrop-filter: blur(45px) saturate(180%);
+    -webkit-backdrop-filter: blur(45px) saturate(180%);
+    border: 1px solid rgba(0, 0, 0, 0.06);
+    box-shadow: 0 10px 50px rgba(0, 0, 0, 0.06);
+  }
+  
+  .glass-card:hover {
+    background: rgba(255, 255, 255, 0.75);
+    border-color: rgba(14, 159, 110, 0.15);
+  }
+  
+  .glass-strong {
+    background: rgba(255, 255, 255, 0.75);
+    backdrop-filter: blur(45px) saturate(180%);
+    -webkit-backdrop-filter: blur(45px) saturate(180%);
+    border: 1px solid rgba(0, 0, 0, 0.06);
+    box-shadow: 0 10px 50px rgba(0, 0, 0, 0.08);
+  }
+  
+  .inset-highlight {
+    box-shadow: inset 0 1px rgba(255, 255, 255, 0.8);
+  }
+  
+  .text-gradient-green {
+    background: linear-gradient(135deg, #0E9F6E 0%, #2ECC71 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  
+  .glow-green {
+    box-shadow: 0 0 40px rgba(14, 159, 110, 0.15);
+  }
+  
+  .glow-green-sm {
+    box-shadow: 0 0 20px rgba(14, 159, 110, 0.1);
+  }
+  
+  .bg-grid-pattern {
+    background-image: 
+      linear-gradient(rgba(0, 0, 0, 0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0, 0, 0, 0.03) 1px, transparent 1px);
+    background-size: 60px 60px;
+  }
+  
+  .bg-dot-pattern {
+    background-image: radial-gradient(rgba(14, 159, 110, 0.08) 1px, transparent 1px);
+    background-size: 24px 24px;
+  }
+
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* Smooth scroll */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Selection styling */
+::selection {
+  background: rgba(14, 159, 110, 0.2);
+  color: #0E9F6E;
 }
