@@ -28,8 +28,6 @@ import {
   Settings as SettingsIcon,
   MessageSquare,
   LayoutDashboard,
-  Sparkles,
-  ListTodo,
   Timer,
   Activity,
 } from "lucide-react";
@@ -374,6 +372,7 @@ export default function Dashboard() {
 
 // ─── SPRINTS VIEW (functional with real project data) ───────────────────────
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function SprintsView({ projects, onSelectProject }: { projects: any[] | undefined; onSelectProject: (id: Id<"projects">) => void }) {
   const [selectedProject, setSelectedProject] = useState<Id<"projects"> | null>(null);
   const sprints = useQuery(api.sprints.list, selectedProject ? { projectId: selectedProject } : "skip");
@@ -507,6 +506,7 @@ function SprintsView({ projects, onSelectProject }: { projects: any[] | undefine
 
 // ─── ANALYTICS VIEW (functional with real computed metrics) ──────────────────
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function AnalyticsView({ projects }: { projects: any[] | undefined }) {
   // Compute real analytics from project data
   const analytics = useMemo(() => {

@@ -204,8 +204,6 @@ function useDynamicSuggestions({
 // ─── POST-MESSAGE SUGGESTIONS ────────────────────────────────────────────────
 
 function usePostMessageSuggestions({
-  projectData,
-  globalData,
   lastMessage,
 }: {
   projectData?: ProjectInsightData | null;
@@ -241,7 +239,8 @@ function usePostMessageSuggestions({
     }
 
     return s.slice(0, 3);
-  }, [lastMessage, projectData, globalData]);
+     
+  }, [lastMessage]);
 }
 
 // ─── MARKDOWN RENDERER ───────────────────────────────────────────────────────
