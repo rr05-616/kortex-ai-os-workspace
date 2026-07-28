@@ -81,8 +81,7 @@ export const getProjectInsights = query({
       insights.push({
         type: "suggestion",
         title: "Kickstart Development",
-        detail:
-          "Move tasks from backlog to 'In Progress' to start building momentum.",
+        detail: "Move tasks from backlog to 'In Progress' to start building momentum.",
         icon: "rocket",
       });
     }
@@ -268,23 +267,13 @@ export const createConversation = mutation({
   },
 });
 
-// ─── TOOL-CALLING CONTEXT BUILDER ────────────────────────────────────────────
+// ─── WORKSPACE CONTEXT BUILDER ───────────────────────────────────────────────
 
-/**
- * Gather comprehensive workspace context for the agent.
- * This is called by sendMessage before generating any response.
- * The agent NEVER answers without this context.
- */
- 
- 
 async function gatherWorkspaceContext(
-   
   ctx: any,
-   
   userId: any,
   projectId?: string
 ) {
-   
   const context: any = {
     projectName: undefined,
     projectDescription: undefined,
@@ -307,11 +296,9 @@ async function gatherWorkspaceContext(
     sprints: [],
     activeSprint: undefined,
     analyses: [],
-    comments: [],
   };
 
   if (projectId) {
-    // Project-scoped
     const project = await ctx.db.get(projectId);
     if (project) {
       context.projectName = project.name;
@@ -358,7 +345,6 @@ async function gatherWorkspaceContext(
     else if (context.totalTasks > 0) context.stage = "Kickoff";
     else context.stage = "Planning";
 
-    // Sprints
     try {
       const sprints = await ctx.db
         .query("sprints")
@@ -396,7 +382,6 @@ async function gatherWorkspaceContext(
       }
     } catch { /* sprints may not exist */ }
 
-    // Analyses
     try {
       const analyses = await ctx.db
         .query("projectAnalyses")
@@ -417,7 +402,6 @@ async function gatherWorkspaceContext(
       }));
     } catch { /* analyses may not exist */ }
   } else {
-    // Global workspace
     const projects = await ctx.db
       .query("projects")
       .withIndex("by_owner", (q: any) => q.eq("ownerId", userId))
@@ -471,352 +455,18 @@ async function gatherWorkspaceContext(
   return context;
 }
 
-// ─── INTENT DETECTION ────────────────────────────────────────────────────────
+// ─── SEND MESSAGE ────────────────────────────────────────────────────────────
 
-const greetings = ["hello", "hi", "hey", "good morning", "good afternoon", "good evening", "what's up", "sup", "yo", "howdy", "greetings"];
-
-function detectIntent(q: string): string {
-  if (greetings.some((g) => q.startsWith(g) || q === g)) return "greeting";
-  if (q.match(/^(who|what) are you|your name|tell me about yourself/)) return "identity";
-  if (q.match(/help|what can you do|capabilities|features|commands/)) return "help";
-  if (q.match(/progress|status|stage|how.*going|how.*project|completion|health/)) return "progress";
-  if (q.match(/risk|block|issue|problem|stuck|danger|warning|overdue|delayed/)) return "risk";
-  if (q.match(/suggest|recommend|improve|better|advice|tip|optimize/)) return "suggest";
-  if (q.match(/sprint|plan|roadmap|backlog|milestone|release|velocity/)) return "sprint";
-  if (q.match(/task|todo|create|add|make|new|breakdown/)) return "task";
-  if (q.match(/team|member|collaborat|assign|workload/)) return "team";
-  if (q.match(/analy|metric|score|report|summary|dashboard/)) return "analytics";
-  if (q.match(/architect|structure|folder|file|component|service|module/)) return "architecture";
-  if (q.match(/thank|thanks|thx|appreciate/)) return "thanks";
-  if (q.match(/bye|goodbye|see you|later|exit/)) return "farewell";
-  return "general";
-}
-
-// ─── SMART RESPONSE GENERATOR ────────────────────────────────────────────────
-
-function generateSmartResponse(
-  intent: string,
-  q: string,
-   
-  ctx: any
-): string {
-  const nl = (...lines: string[]) => lines.filter(Boolean).join("\n");
-
-  switch (intent) {
-    case "greeting": {
-      if (ctx.projectName) {
-        return nl(
-          `Hey! 👋 I'm your AI workspace agent for **${ctx.projectName}**.`,
-          ctx.totalTasks > 0
-            ? `Currently at **${ctx.completionRate}% completion** with **${ctx.totalTasks} tasks** — ${ctx.totalInProgress} in progress, ${ctx.totalRisk} at risk.`
-            : "This project doesn't have any tasks yet — let's get started!",
-          "",
-          "I deeply understand your project. Ask me anything about progress, risks, sprints, architecture, or next steps."
-        );
-      }
-      if (ctx.totalProjects > 0) {
-        return nl(
-          `Hey there! 👋 Welcome back to KORTEX AI.`,
-          `Your workspace has **${ctx.totalProjects} project${ctx.totalProjects !== 1 ? "s" : ""}** with **${ctx.totalTasks} task${ctx.totalTasks !== 1 ? "s" : ""}**.`,
-          ctx.totalInProgress > 0 ? `${ctx.totalInProgress} task${ctx.totalInProgress !== 1 ? "s are" : " is"} in progress.` : "No tasks in progress right now.",
-          ctx.totalRisk > 0 ? `⚠️ **${ctx.totalRisk}** high-risk tasks need attention.` : "",
-          "",
-          "I'm your autonomous workspace agent. Ask me anything — I'll investigate your data first."
-        );
-      }
-      return nl(
-        "Hey there! 👋 I'm **KORTEX AI** — your autonomous workspace intelligence agent.",
-        "",
-        "I'm not a chatbot. I investigate your entire workspace before answering every question.",
-        "Create your first project and I'll start tracking everything automatically."
-      );
-    }
-
-    case "identity":
-      return nl(
-        "I'm **KORTEX AI** — an autonomous workspace intelligence agent.",
-        "",
-        "Unlike a chatbot, I **always investigate your workspace data** before answering.",
-        "I understand your projects, tasks, sprints, risks, architecture, and analytics.",
-        "",
-        "**What I can do:**",
-        "• Analyze project health and progress with real numbers",
-        "• Detect risks, blockers, and overdue tasks",
-        "• Plan sprints based on velocity and dependencies",
-        "• Explain your project architecture and tech stack",
-        "• Recommend what to build next based on priorities",
-        "• Generate task breakdowns and sprint plans",
-        "• Answer any software development question with workspace context",
-        "",
-        "Just ask naturally — I'll investigate your data first."
-      );
-
-    case "help": {
-      return nl(
-        "**Here's what I can do as your workspace agent:**",
-        "",
-        "📊 **Project Intelligence**",
-        "• \"How is my project doing?\" — Full status with real numbers",
-        "• \"What are the risks?\" — Specific risky tasks and mitigations",
-        "• \"Explain my project\" — Architecture, tech stack, features",
-        "",
-        "🏃 **Sprint Planning**",
-        "• \"What should I work on next?\" — Priority-based recommendations",
-        "• \"Plan a sprint\" — Task selection based on velocity",
-        "• \"We are delayed\" — Recovery plan with task reordering",
-        "",
-        "🔍 **Risk & Analysis**",
-        "• \"What's blocking us?\" — Dependencies and blockers",
-        "• \"Which tasks are overdue?\" — Specific overdue items",
-        "• \"Give me an executive summary\" — Portfolio-wide overview",
-        "",
-        "💬 **General Knowledge**",
-        "• Ask me anything about software development, architecture, best practices!",
-        "",
-        "I investigate your workspace data **before every response**."
-      );
-    }
-
-    case "progress": {
-      if (ctx.totalTasks === 0) {
-        return ctx.projectName
-          ? nl(
-              `**${ctx.projectName}** has no tasks yet.`,
-              "Create some tasks from the project dashboard and I'll start tracking your progress automatically."
-            )
-          : nl(
-              `You have ${ctx.totalProjects} project${ctx.totalProjects !== 1 ? "s" : ""} but no tasks yet.`,
-              "Create a project and add some tasks to unlock AI-powered tracking."
-            );
-      }
-      if (ctx.projectName) {
-        const lines = [
-          `**${ctx.projectName}** — ${ctx.stage}`,
-          "",
-          `📊 **Completion: ${ctx.completionRate}%** (${ctx.totalDone}/${ctx.totalTasks})`,
-          `• ✅ Done: ${ctx.totalDone}`,
-          `• 🔄 In Progress: ${ctx.totalInProgress}`,
-          `• 📋 Todo: ${ctx.totalTodo}`,
-          `• 📦 Backlog: ${ctx.totalBacklog}`,
-          `• 👁️ In Review: ${ctx.totalReview}`,
-        ];
-        if (ctx.totalRisk > 0) lines.push(`• ⚠️ High-Risk: ${ctx.totalRisk}`);
-        if (ctx.totalOverdue > 0) lines.push(`• ⏰ Overdue: ${ctx.totalOverdue}`);
-        if (ctx.activeSprint) {
-          lines.push("", `🏃 **Active Sprint: ${ctx.activeSprint.name}**`);
-          lines.push(`   Progress: ${ctx.activeSprint.completedTasks}/${ctx.activeSprint.taskCount} tasks`);
-          if (ctx.activeSprint.goal) lines.push(`   Goal: ${ctx.activeSprint.goal}`);
-        }
-        return lines.join("\n");
-      }
-      return nl(
-        "**Workspace Overview:**",
-        "",
-        `• **${ctx.totalProjects}** projects (${ctx.activeProjects} active)`,
-        `• **${ctx.totalTasks}** total tasks`,
-        `• **${ctx.completionRate}%** overall completion`,
-        `• **${ctx.totalDone}** done, **${ctx.totalInProgress}** in progress`,
-        ctx.totalRisk > 0 ? `• ⚠️ **${ctx.totalRisk}** high-risk tasks` : "",
-        ctx.totalOverdue > 0 ? `• ⏰ **${ctx.totalOverdue}** overdue tasks` : ""
-      );
-    }
-
-    case "risk": {
-      if (ctx.totalRisk === 0 && ctx.totalOverdue === 0) {
-        return nl(
-          "✅ **All clear!** No high-risk or overdue tasks detected.",
-          "Your workspace is healthy. Keep monitoring deadlines to maintain this status."
-        );
-      }
-      const lines: string[] = [];
-      if (ctx.totalOverdue > 0) {
-        lines.push(`⏰ **${ctx.totalOverdue} Overdue Task${ctx.totalOverdue !== 1 ? "s" : ""}:**`);
-        ctx.tasks
-          .filter((t: any) => t.dueDate && t.dueDate < Date.now() && t.status !== "done")
-          .slice(0, 5)
-          .forEach((t: any) => {
-            lines.push(`• **"${t.title}"** — ${t.status.replace("_", " ")}, due ${new Date(t.dueDate).toLocaleDateString()}`);
-          });
-      }
-      if (ctx.totalRisk > 0) {
-        lines.push("", `⚠️ **${ctx.totalRisk} High-Risk Task${ctx.totalRisk !== 1 ? "s" : ""}:**`);
-        ctx.tasks
-          .filter((t: any) => (t.aiRiskScore ?? 0) > 0.7)
-          .slice(0, 5)
-          .forEach((t: any) => {
-            lines.push(`• **"${t.title}"** — ${t.status.replace("_", " ")}, priority:${t.priority}, risk:${Math.round((t.aiRiskScore ?? 0) * 100)}%`);
-          });
-      }
-      lines.push(
-        "",
-        "**My recommendation:** Review these tasks immediately. Consider breaking them into smaller pieces or escalating blockers."
-      );
-      return lines.join("\n");
-    }
-
-    case "suggest": {
-      const suggestions: string[] = [];
-      if (ctx.totalTasks === 0) {
-        suggestions.push("Create your first project and add tasks to start tracking progress.");
-        suggestions.push("Define clear goals and milestones for your project.");
-      } else {
-        if (ctx.totalInProgress === 0 && ctx.totalTasks > 0) {
-          suggestions.push("Move tasks from backlog/todo to 'In Progress' to build momentum.");
-        }
-        if (ctx.completionRate > 80) {
-          suggestions.push("Great progress! Consider starting a new sprint or closing this project.");
-        }
-        if (ctx.completionRate < 30 && ctx.totalTasks > 5) {
-          suggestions.push("Break large tasks into smaller, more manageable subtasks (aim for 2-4h each).");
-        }
-        if (ctx.totalRisk > 0) {
-          suggestions.push(`Address the ${ctx.totalRisk} high-risk task${ctx.totalRisk !== 1 ? "s" : ""} before they become blockers.`);
-        }
-        if (ctx.totalInProgress > 3) {
-          suggestions.push("Focus on completing current work before starting new items — limit WIP to 3.");
-        }
-        if (ctx.totalOverdue > 0) {
-          suggestions.push(`Re-prioritize the ${ctx.totalOverdue} overdue task${ctx.totalOverdue !== 1 ? "s" : ""}.`);
-        }
-        if (suggestions.length === 0) {
-          suggestions.push("Your workflow looks solid! Consider setting up sprint goals.");
-        }
-      }
-      return `**My Recommendations:**\n\n${suggestions.map((s, i) => `${i + 1}. ${s}`).join("\n")}`;
-    }
-
-    case "sprint": {
-      const readyTasks = ctx.tasks.filter((t: any) => t.status === "backlog" || t.status === "todo");
-      const lines = [
-        "**Sprint Planning Analysis:**",
-        "",
-        `• **${readyTasks.length}** tasks ready to pick up`,
-        `• **${ctx.totalInProgress}** currently in progress`,
-        ctx.activeSprint ? `• Active sprint: **${ctx.activeSprint.name}** — ${ctx.activeSprint.completedTasks}/${ctx.activeSprint.taskCount} done` : "• No active sprint",
-        "",
-        "**Recommended approach:**",
-        "1. **Review** — Check priority and dependencies",
-        "2. **Scope** — Aim for 3-5 key deliverables per sprint",
-        "3. **Balance** — Mix quick wins with larger features",
-        "4. **Buffer** — Leave 20% for unexpected issues",
-        "5. **Commit** — Set clear sprint goals",
-      ];
-      if (readyTasks.length > 0) {
-        lines.push("", "**Top candidates:**");
-        readyTasks.slice(0, 5).forEach((t: any) => {
-          lines.push(`• "${t.title}" [${t.priority}]`);
-        });
-      }
-      return lines.join("\n");
-    }
-
-    case "task": {
-      const statusCounts: Record<string, number> = {};
-      ctx.tasks.forEach((t: any) => {
-        statusCounts[t.status] = (statusCounts[t.status] || 0) + 1;
-      });
-      const lines = ["**Task Overview:**", ""];
-      Object.entries(statusCounts).forEach(([status, count]) => {
-        lines.push(`• **${status.replace("_", " ")}**: ${count}`);
-      });
-      if (ctx.totalTasks === 0) {
-        lines.push("", "No tasks yet! Create your first task from the project dashboard.");
-      } else {
-        lines.push("", `**Total: ${ctx.totalTasks} tasks** — ${ctx.completionRate}% complete`);
-      }
-      return lines.join("\n");
-    }
-
-    case "analytics": {
-      return nl(
-        "**Workspace Analytics:**",
-        "",
-        `📊 **Completion Rate: ${ctx.completionRate}%**`,
-        `• Total Tasks: ${ctx.totalTasks}`,
-        `• Completed: ${ctx.totalDone}`,
-        `• In Progress: ${ctx.totalInProgress}`,
-        `• Risk Score: ${ctx.totalRisk > 0 ? `⚠️ ${ctx.totalRisk} high-risk tasks` : "✅ Low risk"}`,
-        ctx.sprints.length > 0 ? `\n🏃 **Sprints: ${ctx.sprints.length}** (${ctx.sprints.filter((s: any) => s.status === "active").length} active)` : ""
-      );
-    }
-
-    case "architecture": {
-      if (ctx.analyses.length > 0) {
-        const a = ctx.analyses[0];
-        return nl(
-          `**Project Architecture — ${a.name}:**`,
-          "",
-          `🏗️ **Architecture:** ${a.architecture}`,
-          `📊 **Score: ${a.score}/100** | Stage: ${a.stage}`,
-          "",
-          "**Tech Stack:**",
-          `• Frontend: ${a.techStack.frontend.join(", ") || "Not detected"}`,
-          `• Backend: ${a.techStack.backend.join(", ") || "Not detected"}`,
-          `• Database: ${a.techStack.database.join(", ") || "Not detected"}`,
-          `• Cloud: ${a.techStack.cloud.join(", ") || "Not detected"}`,
-          "",
-          `**Strengths:** ${a.strengths.join("; ")}`,
-          `**Weaknesses:** ${a.weaknesses.join("; ")}`
-        );
-      }
-      return nl(
-        "**No repository analysis found.**",
-        "Import a project using the 'Import Project' button to get AI-powered architecture analysis."
-      );
-    }
-
-    case "team":
-      return nl(
-        "**Team Collaboration Tips:**",
-        "",
-        "• Assign tasks based on strengths and availability",
-        "• Limit work-in-progress to avoid burnout",
-        "• Use task comments for async communication",
-        "• Regular standups catch blockers early",
-        "• Pair on high-risk or complex tasks"
-      );
-
-    case "thanks":
-      return "You're welcome! 😊 I'm here whenever you need help with your workspace.";
-
-    case "farewell":
-      return "See you later! 👋 I'll keep monitoring your workspace. Come back anytime!";
-
-    case "general":
-    default: {
-      if (ctx.totalProjects > 0) {
-        return nl(
-          "Great question! As your workspace intelligence agent, I can answer both **project-specific** and **general** questions.",
-          ctx.projectName
-            ? `For your project **${ctx.projectName}** (${ctx.completionRate}% complete), try asking about:`
-            : "Try asking me about:",
-          "",
-          "• Project progress and status",
-          "• Risk analysis and blockers",
-          "• Sprint planning",
-          "• Task prioritization",
-          "• Architecture and tech stack",
-          "",
-          "Or ask me anything about software development!"
-        );
-      }
-      return nl(
-        "I'm your autonomous workspace agent! I investigate your data before every answer.",
-        "",
-        "Try asking me about:",
-        "• **Project management** — planning, tracking, delivery",
-        "• **Software development** — architecture, best practices, debugging",
-        "• **Sprint planning** — velocity, task selection, capacity",
-        "",
-        "Or create a project and I'll start tracking everything for you."
-      );
-    }
-  }
-}
-
-// ─── SEND MESSAGE (AGENT ORCHESTRATOR) ───────────────────────────────────────
-
-/** Send a message and get a response — always uses workspace context */
+/**
+ * Send a message and get a response.
+ * This mutation:
+ * 1. Loads the full conversation history
+ * 2. Gathers complete workspace context
+ * 3. Calls the generateResponse action with full context + history
+ * 4. Stores the response
+ *
+ * The AI NEVER gives generic responses — it always uses workspace data.
+ */
 export const sendMessage = mutation({
   args: {
     conversationId: v.id("aiConversations"),
@@ -833,34 +483,33 @@ export const sendMessage = mutation({
 
     const now = Date.now();
 
+    // Add user message
     const messages = [
       ...conversation.messages,
       { role: "user" as const, content: args.content, timestamp: now },
     ];
 
-    const q = args.content.toLowerCase();
-
-    // ── STEP 1: GATHER FULL WORKSPACE CONTEXT ──
+    // Gather full workspace context
     const context = await gatherWorkspaceContext(ctx, user._id, conversation.projectId ?? undefined);
 
-    // ── STEP 2: DETECT INTENT ──
-    const intent = detectIntent(q);
+    // Build conversation history for the AI (last 10 messages for context window)
+    const conversationHistory = messages.slice(-10).map((m) => ({
+      role: m.role,
+      content: m.content,
+    }));
 
-    // ── STEP 3: GENERATE CONTEXTUAL RESPONSE ──
-    const response = generateSmartResponse(intent, q, context);
-
-    messages.push({
-      role: "assistant" as const,
-      content: response,
-      timestamp: Date.now(),
-    });
-
+    // Save the user message first so it appears in the conversation
     await ctx.db.patch(args.conversationId, {
       messages,
       updatedAt: Date.now(),
     });
 
-    return messages;
+    // Return the conversation with metadata so the frontend can call the action
+    return {
+      messages,
+      context,
+      conversationHistory,
+    };
   },
 });
 
@@ -888,5 +537,37 @@ export const getConversation = query({
     const conversation = await ctx.db.get(args.conversationId);
     if (!conversation || conversation.userId !== user._id) return null;
     return conversation;
+  },
+});
+
+/** Save assistant response to conversation */
+export const saveAssistantResponse = mutation({
+  args: {
+    conversationId: v.id("aiConversations"),
+    content: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const user = await getCurrentUser(ctx);
+    if (!user) throw new Error("Not authenticated");
+
+    const conversation = await ctx.db.get(args.conversationId);
+    if (!conversation || conversation.userId !== user._id) {
+      throw new Error("Conversation not found");
+    }
+
+    const assistantMessage = {
+      role: "assistant" as const,
+      content: args.content,
+      timestamp: Date.now(),
+    };
+
+    const updatedMessages = [...conversation.messages, assistantMessage];
+
+    await ctx.db.patch(args.conversationId, {
+      messages: updatedMessages,
+      updatedAt: Date.now(),
+    });
+
+    return updatedMessages;
   },
 });

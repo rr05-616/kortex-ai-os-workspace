@@ -4,14 +4,6 @@ import { v } from "convex/values";
 import { action } from "./_generated/server";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
-/**
- * KORTEX AI Agent — Gemini-powered workspace intelligence.
- *
- * Before every LLM call, we gather ALL workspace data (projects, tasks,
- * sprints, analyses, comments, notifications) and inject it as system
- * context so the model never gives generic answers.
- */
-
 // ─── GEMINI WRAPPER ──────────────────────────────────────────────────────────
 
 async function callGemini(
@@ -34,7 +26,7 @@ async function callGemini(
             role: m.role === "user" ? ("user" as const) : ("model" as const),
             parts: [{ text: m.content }],
           }))
-          .slice(-10) ?? [],
+          .slice(-20) ?? [],
     });
 
     const result = await chat.sendMessage(userMessage);
@@ -45,10 +37,40 @@ async function callGemini(
   }
 }
 
-// ─── CONTEXT BUILDER ─────────────────────────────────────────────────────────
+// ─── CONTEXT TYPES ───────────────────────────────────────────────────────────
 
-function nl(...lines: string[]) {
-  return lines.filter(Boolean).join("\n");
+interface TaskData {
+  title: string;
+  status: string;
+  priority: string;
+  description?: string;
+  aiRiskScore?: number;
+  dueDate?: number;
+  estimatedHours?: number;
+  tags?: string[];
+}
+
+interface SprintData {
+  name: string;
+  status: string;
+  goal?: string;
+  taskCount: number;
+  completedTasks: number;
+  startDate: number;
+  endDate: number;
+}
+
+interface AnalysisData {
+  url: string;
+  name: string;
+  type: string;
+  score: number;
+  stage: string;
+  summary: string;
+  strengths: string[];
+  weaknesses: string[];
+  techStack: { frontend: string[]; backend: string[]; database: string[]; cloud: string[]; ai: string[] };
+  architecture: string;
 }
 
 interface ContextData {
@@ -59,77 +81,132 @@ interface ContextData {
   healthScore?: number;
   sprintDuration?: number;
   stage: string;
-  tasks: Array<{
-    title: string;
-    status: string;
-    priority: string;
-    description?: string;
-    aiRiskScore?: number;
-    dueDate?: number;
-    estimatedHours?: number;
-    tags?: string[];
-    aiGenerated?: boolean;
-  }>;
+  tasks: TaskData[];
   totalTasks: number;
   totalDone: number;
   totalInProgress: number;
   totalTodo: number;
   totalBacklog: number;
   totalReview: number;
-  totalCancelled: number;
   totalRisk: number;
   totalOverdue: number;
   completionRate: number;
   totalProjects: number;
   activeProjects: number;
-  sprints: Array<{
-    name: string;
-    status: string;
-    goal?: string;
-    taskCount: number;
-    completedTasks: number;
-    startDate: number;
-    endDate: number;
-  }>;
-  activeSprint?: {
-    name: string;
-    goal?: string;
-    taskCount: number;
-    completedTasks: number;
-  };
-  analyses: Array<{
-    url: string;
-    name: string;
-    type: string;
-    score: number;
-    stage: string;
-    summary: string;
-    strengths: string[];
-    weaknesses: string[];
-    recommendations: string[];
-    techStack: {
-      frontend: string[];
-      backend: string[];
-      database: string[];
-      cloud: string[];
-      ai: string[];
-    };
-    architecture: string;
-  }>;
-  recentActivity: Array<{ title: string; type: string; timestamp: number }>;
-  comments: Array<{ taskTitle: string; content: string; isAI: boolean }>;
+  sprints: SprintData[];
+  activeSprint?: { name: string; goal?: string; taskCount: number; completedTasks: number };
+  analyses: AnalysisData[];
 }
 
-function computeStage(completionRate: number, totalTasks: number): string {
-  if (totalTasks === 0) return "Planning";
-  if (completionRate >= 90) return "Wrapping Up";
-  if (completionRate >= 70) return "Execution";
-  if (completionRate >= 40) return "Active Development";
-  if (completionRate >= 15) return "Early Stage";
-  return "Kickoff";
+// ─── FOLLOW-UP DETECTION ─────────────────────────────────────────────────────
+
+/**
+ * Detect if a short message is a follow-up to the previous assistant response.
+ * If so, return the resolved full query. Otherwise return null.
+ */
+function detectFollowUp(
+  message: string,
+  history: Array<{ role: string; content: string }>
+): string | null {
+  const msg = message.toLowerCase().trim();
+
+  // Only classify as follow-up if the message is short (< 15 words)
+  const wordCount = msg.split(/\s+/).length;
+  if (wordCount > 15) return null;
+
+  // Must have a previous assistant message to reference
+  const lastAssistant = [...history].reverse().find((m) => m.role === "assistant");
+  if (!lastAssistant) return null;
+
+  // Extract key topics from the last assistant response
+  const prevContent = lastAssistant.content.toLowerCase();
+
+  // Follow-up patterns
+  const followUpPatterns: Array<{ patterns: string[]; resolver: (prev: string) => string }> = [
+    {
+      patterns: ["why", "why?", "why is that", "explain why", "tell me why"],
+      resolver: (prev) => `Explain the reasoning behind: ${prev.slice(0, 200)}`,
+    },
+    {
+      patterns: ["how", "how?", "how do i", "how does", "how can"],
+      resolver: (prev) => `Provide implementation details for: ${prev.slice(0, 200)}`,
+    },
+    {
+      patterns: ["continue", "go on", "keep going", "next", "what else", "and?"],
+      resolver: (prev) => `Continue the previous analysis. What else should I know about: ${prev.slice(0, 200)}`,
+    },
+    {
+      patterns: ["explain", "explain that", "explain it", "tell me more", "elaborate", "details"],
+      resolver: (prev) => `Give more detail about: ${prev.slice(0, 200)}`,
+    },
+    {
+      patterns: ["do it", "start", "begin", "let's do it", "proceed", "go ahead", "start now"],
+      resolver: (prev) => `Execute the recommended action from: ${prev.slice(0, 200)}`,
+    },
+    {
+      patterns: ["review", "review that", "review it", "check that", "check this"],
+      resolver: (prev) => `Review and analyze in depth: ${prev.slice(0, 200)}`,
+    },
+    {
+      patterns: ["improve", "improve it", "make it better", "optimize", "optimize it"],
+      resolver: (prev) => `Suggest improvements for: ${prev.slice(0, 200)}`,
+    },
+    {
+      patterns: ["create", "create it", "make it", "generate", "build it"],
+      resolver: (prev) => `Generate a detailed plan for: ${prev.slice(0, 200)}`,
+    },
+    {
+      patterns: ["move", "move it", "move this", "reorder"],
+      resolver: (prev) => `Suggest reordering or moving based on: ${prev.slice(0, 200)}`,
+    },
+    {
+      patterns: ["what about", "what about that", "what about this"],
+      resolver: (prev) => `Address the follow-up regarding: ${prev.slice(0, 200)}`,
+    },
+  ];
+
+  for (const { patterns, resolver } of followUpPatterns) {
+    if (patterns.some((p) => msg === p || msg.startsWith(p))) {
+      return resolver(prevContent);
+    }
+  }
+
+  return null;
 }
 
-function buildAgentSystemPrompt(ctx: ContextData): string {
+// ─── INTENT DETECTION ────────────────────────────────────────────────────────
+
+const greetings = [
+  "hello", "hi", "hey", "good morning", "good afternoon", "good evening",
+  "what's up", "sup", "yo", "howdy", "greetings",
+];
+
+function detectIntent(q: string): string {
+  const msg = q.toLowerCase();
+  if (greetings.some((g) => msg.startsWith(g) || msg === g)) return "greeting";
+  if (msg.match(/^(who|what) are you|your name|tell me about yourself/)) return "identity";
+  if (msg.match(/help|what can you do|capabilities|features|commands/)) return "help";
+  if (msg.match(/progress|status|stage|how.*going|how.*project|completion|health/)) return "progress";
+  if (msg.match(/risk|block|issue|problem|stuck|danger|warning|overdue|delayed/)) return "risk";
+  if (msg.match(/suggest|recommend|improve|better|advice|tip|optimize/)) return "suggest";
+  if (msg.match(/sprint|plan|roadmap|backlog|milestone|release|velocity|velocity/)) return "sprint";
+  if (msg.match(/task|todo|create|add|make|new|breakdown|break down/)) return "task";
+  if (msg.match(/team|member|collaborat|assign|workload/)) return "team";
+  if (msg.match(/analy|metric|score|report|summary|dashboard/)) return "analytics";
+  if (msg.match(/architect|structure|folder|file|component|service|module|tech stack/)) return "architecture";
+  if (msg.match(/thank|thanks|thx|appreciate/)) return "thanks";
+  if (msg.match(/bye|goodbye|see you|later|exit/)) return "farewell";
+  if (msg.match(/explain|why|how does|what is/)) return "explain";
+  if (msg.match(/create|generate|write|build|implement/)) return "create";
+  if (msg.match(/review|check|inspect|audit/)) return "review";
+  return "general";
+}
+
+// ─── SYSTEM PROMPT BUILDER ───────────────────────────────────────────────────
+
+function buildAgentSystemPrompt(ctx: ContextData, conversationHistory: Array<{ role: string; content: string }>): string {
+  const nl = (...lines: string[]) => lines.filter(Boolean).join("\n");
+
   const taskLines =
     ctx.tasks.length > 0
       ? ctx.tasks
@@ -178,8 +255,7 @@ function buildAgentSystemPrompt(ctx: ContextData): string {
                 `  Architecture: ${a.architecture.slice(0, 120)}`,
                 `  Tech: FE=[${a.techStack.frontend.join(", ")}] BE=[${a.techStack.backend.join(", ")}] DB=[${a.techStack.database.join(", ")}] Cloud=[${a.techStack.cloud.join(", ")}]`,
                 `  Strengths: ${a.strengths.slice(0, 3).join("; ")}`,
-                `  Weaknesses: ${a.weaknesses.slice(0, 3).join("; ")}`,
-                `  Recommendations: ${a.recommendations.slice(0, 3).join("; ")}`
+                `  Weaknesses: ${a.weaknesses.slice(0, 3).join("; ")}`
               )
           )
           .join("\n")
@@ -194,8 +270,7 @@ function buildAgentSystemPrompt(ctx: ContextData): string {
           "",
           "⏰ OVERDUE TASKS:",
           ...overdueTasks.map(
-            (t) =>
-              `- "${t.title}" [${t.status}] — due ${new Date(t.dueDate!).toLocaleDateString()}`
+            (t) => `- "${t.title}" [${t.status}] — due ${new Date(t.dueDate!).toLocaleDateString()}`
           )
         )
       : "";
@@ -207,34 +282,43 @@ function buildAgentSystemPrompt(ctx: ContextData): string {
           "",
           "⚠️ HIGH-RISK TASKS:",
           ...riskTasks.map(
-            (t) =>
-              `- "${t.title}" [${t.status}] priority:${t.priority} risk:${Math.round((t.aiRiskScore ?? 0) * 100)}%`
+            (t) => `- "${t.title}" [${t.status}] priority:${t.priority} risk:${Math.round((t.aiRiskScore ?? 0) * 100)}%`
           )
         )
       : "";
 
-  const activityInfo =
-    ctx.recentActivity.length > 0
-      ? nl(
-          "",
-          "RECENT ACTIVITY:",
-          ...ctx.recentActivity.slice(0, 10).map(
-            (a) =>
-              `- [${a.type}] ${a.title} (${new Date(a.timestamp).toLocaleDateString()})`
-          )
+  // Build conversation history summary for context
+  const recentConversation = conversationHistory.length > 0
+    ? nl(
+        "",
+        "RECENT CONVERSATION (for context continuity):",
+        ...conversationHistory.slice(-10).map(
+          (m) => `[${m.role === "user" ? "User" : "Agent"}]: ${m.content.slice(0, 300)}${m.content.length > 300 ? "..." : ""}`
         )
-      : "";
+      )
+    : "";
 
   return nl(
     "You are KORTEX AI — an autonomous workspace intelligence agent embedded in the KORTEX AI Operating System.",
     "You are NOT a chatbot. You are an AI Senior Technical Program Manager + Software Architect + AI Engineer.",
     "",
-    "═══ IDENTITY ═══",
-    "- Proactively identify risks, suggest improvements, and recommend next actions",
-    "- Every response MUST use actual workspace data — NEVER generic filler",
-    "- Reference specific task names, numbers, statuses, and dates",
-    "- Tone: Professional, concise, technical, actionable",
-    "- Format: Use markdown (bold, bullets, numbered steps, code blocks when relevant)",
+    "═══ CRITICAL RULES ═══",
+    "1. NEVER respond with generic text like 'You can ask me about...', 'I can help with...', 'Try asking me about...'",
+    "2. NEVER advertise your capabilities or list what you can do.",
+    "3. NEVER restart the conversation or treat follow-ups as new conversations.",
+    "4. ALWAYS answer using the actual workspace data provided below.",
+    "5. If the workspace has tasks/sprints/projects, reference them by NAME with specific numbers.",
+    "6. For general knowledge questions, answer helpfully but tie back to workspace context when relevant.",
+    "7. For follow-up questions ('why?', 'continue', 'explain that'), CONTINUE the previous analysis — do NOT restart.",
+    "8. Be proactive — naturally mention overdue tasks, low completion, and blockers.",
+    "9. Keep responses concise (3-8 sentences) unless the user asks for detail.",
+    "10. Always end with a specific actionable next step or question.",
+    "",
+    "═══ RESPONSE STYLE ═══",
+    "- Use markdown: bold for key terms, bullets for lists, numbered steps for plans",
+    "- Reference specific task names, numbers, statuses, and dates from the data",
+    "- Every response must include: what I found → my analysis → recommendation → next action",
+    "- Tone: Professional, concise, technical, actionable — like a senior engineering manager",
     "",
     "═══ USER ═══",
     `Name: ${ctx.userName ?? "User"}`,
@@ -255,7 +339,7 @@ function buildAgentSystemPrompt(ctx: ContextData): string {
           `Projects: ${ctx.totalProjects} total (${ctx.activeProjects} active)`,
           `Tasks: ${ctx.totalTasks} total`,
           `  Done: ${ctx.totalDone} | In Progress: ${ctx.totalInProgress} | Todo: ${ctx.totalTodo}`,
-          `  Backlog: ${ctx.totalBacklog} | In Review: ${ctx.totalReview} | Cancelled: ${ctx.totalCancelled}`
+          `  Backlog: ${ctx.totalBacklog} | In Review: ${ctx.totalReview}`
         ),
     "",
     "═══ TASKS ═══",
@@ -269,7 +353,6 @@ function buildAgentSystemPrompt(ctx: ContextData): string {
     "",
     "═══ REPOSITORY ANALYSIS ═══",
     analysisInfo,
-    activityInfo,
     "",
     "═══ CRITICAL METRICS ═══",
     `Completion: ${ctx.completionRate}% (${ctx.totalDone}/${ctx.totalTasks})`,
@@ -279,65 +362,169 @@ function buildAgentSystemPrompt(ctx: ContextData): string {
     `In Review: ${ctx.totalReview}`,
     `High-Risk: ${ctx.totalRisk}`,
     `Overdue: ${ctx.totalOverdue}`,
+    recentConversation,
     "",
-    "═══ BEHAVIOR RULES ═══",
-    "1. NEVER respond with generic text like 'You can ask me about...' — ALWAYS use the actual data above.",
-    "2. When asked about progress, give specific numbers: tasks, completion %, health, risks, overdue.",
-    "3. When asked what to build next, analyze priorities, dependencies, and sprint capacity.",
-    "4. When asked to explain the project, describe tech stack, architecture, features, current state.",
-    "5. When asked about risks, name specific risky tasks and explain why they're risky.",
-    "6. When asked to create a sprint, suggest specific tasks based on priority and capacity.",
-    "7. Be proactive — mention overdue tasks, low completion, and blockers naturally.",
-    "8. For general coding/architecture questions, answer helpfully but tie back to workspace when relevant.",
-    "9. If the workspace is empty, guide the user to create their first project and add tasks.",
-    "10. Never say 'I don't have access to data' — you have full workspace context.",
-    "11. Keep responses concise (3-8 sentences) unless the user asks for detail.",
-    "12. When detecting project-specific questions, always reference actual task names and numbers.",
-    "13. Detect intent: progress/status, risk/blockers, suggestions, sprint planning, task management, general help.",
-    "14. For sprint planning: recommend which tasks to include, estimate velocity, identify dependencies.",
-    "15. For risk analysis: identify high-risk tasks, overdue items, blocked work, and suggest mitigations."
+    "═══ INTENT HANDLING ═══",
+    "When the user asks a FOLLOW-UP question (like 'why?', 'continue', 'explain that', 'do it'):",
+    "  - Check the CONVERSATION HISTORY above to understand what was just discussed",
+    "  - Continue THAT specific analysis — do NOT restart or give a new overview",
+    "  - Reference the specific topics/tasks/recommendations from your previous response",
+    "",
+    "When the user asks a NEW question:",
+    "  - Investigate the workspace data above",
+    "  - Generate a response grounded in actual numbers and task names",
+    "  - Always end with a clear next step",
+    "",
+    "When the workspace is empty (no tasks/projects):",
+    "  - Guide the user to create their first project and add tasks",
+    "  - Be helpful but don't fabricate data",
+    "",
+    "When the user asks a GENERAL knowledge question:",
+    "  - Answer it directly with your knowledge",
+    "  - If it relates to the workspace, connect it to their actual project data",
+    "  - Never say 'I don't have access to data' — you have full context"
   );
 }
 
-// ─── INTENT DETECTION ────────────────────────────────────────────────────────
+// ─── MAIN ACTION ─────────────────────────────────────────────────────────────
 
-const greetings = [
-  "hello", "hi", "hey", "good morning", "good afternoon", "good evening",
-  "what's up", "sup", "yo", "howdy", "greetings",
-];
+/**
+ * Generate a response using Gemini with full workspace context and conversation memory.
+ * If Gemini is unavailable, falls back to rule-based responses that are NEVER generic.
+ */
+export const generateResponse = action({
+  args: {
+    projectId: v.optional(v.string()),
+    userMessage: v.string(),
+    conversationHistory: v.array(
+      v.object({
+        role: v.string(),
+        content: v.string(),
+      })
+    ),
+    context: v.object({
+      userName: v.optional(v.string()),
+      projectName: v.optional(v.string()),
+      projectDescription: v.optional(v.string()),
+      projectStatus: v.optional(v.string()),
+      healthScore: v.optional(v.number()),
+      sprintDuration: v.optional(v.number()),
+      stage: v.string(),
+      tasks: v.array(
+        v.object({
+          title: v.string(),
+          status: v.string(),
+          priority: v.string(),
+          description: v.optional(v.string()),
+          aiRiskScore: v.optional(v.number()),
+          dueDate: v.optional(v.number()),
+          estimatedHours: v.optional(v.number()),
+          tags: v.optional(v.array(v.string())),
+        })
+      ),
+      totalTasks: v.number(),
+      totalDone: v.number(),
+      totalInProgress: v.number(),
+      totalTodo: v.number(),
+      totalBacklog: v.number(),
+      totalReview: v.number(),
+      totalRisk: v.number(),
+      totalOverdue: v.number(),
+      completionRate: v.number(),
+      totalProjects: v.number(),
+      activeProjects: v.number(),
+      sprints: v.array(
+        v.object({
+          name: v.string(),
+          status: v.string(),
+          goal: v.optional(v.string()),
+          taskCount: v.number(),
+          completedTasks: v.number(),
+          startDate: v.number(),
+          endDate: v.number(),
+        })
+      ),
+      activeSprint: v.optional(
+        v.object({
+          name: v.string(),
+          goal: v.optional(v.string()),
+          taskCount: v.number(),
+          completedTasks: v.number(),
+        })
+      ),
+      analyses: v.array(
+        v.object({
+          url: v.string(),
+          name: v.string(),
+          type: v.string(),
+          score: v.number(),
+          stage: v.string(),
+          summary: v.string(),
+          strengths: v.array(v.string()),
+          weaknesses: v.array(v.string()),
+          techStack: v.object({
+            frontend: v.array(v.string()),
+            backend: v.array(v.string()),
+            database: v.array(v.string()),
+            cloud: v.array(v.string()),
+            ai: v.array(v.string()),
+          }),
+          architecture: v.string(),
+        })
+      ),
+    }),
+  },
+  handler: async (_, args) => {
+    const ctxData = args.context as ContextData;
+    const message = args.userMessage;
+    const history = args.conversationHistory;
 
-function detectIntent(q: string): string {
-  if (greetings.some((g) => q.startsWith(g) || q === g)) return "greeting";
-  if (q.match(/^(who|what) are you|your name|tell me about yourself/)) return "identity";
-  if (q.match(/help|what can you do|capabilities|features|commands/)) return "help";
-  if (q.match(/progress|status|stage|how.*going|how.*project|completion|health/)) return "progress";
-  if (q.match(/risk|block|issue|problem|stuck|danger|warning|overdue|delayed/)) return "risk";
-  if (q.match(/suggest|recommend|improve|better|advice|tip|optimize/)) return "suggest";
-  if (q.match(/sprint|plan|roadmap|backlog|milestone|release|velocity/)) return "sprint";
-  if (q.match(/task|todo|create|add|make|new|breakdown/)) return "task";
-  if (q.match(/team|member|collaborat|assign|workload/)) return "team";
-  if (q.match(/analy|metric|score|report|summary|dashboard/)) return "analytics";
-  if (q.match(/architect|structure|folder|file|component|service|module/)) return "architecture";
-  if (q.match(/thank|thanks|thx|appreciate/)) return "thanks";
-  if (q.match(/bye|goodbye|see you|later|exit/)) return "farewell";
-  return "general";
-}
+    // ── STEP 1: DETECT FOLLOW-UP ──
+    const followUpQuery = detectFollowUp(message, history);
+    const effectiveQuery = followUpQuery || message;
+    const isFollowUp = followUpQuery !== null;
 
-// ─── SMART RULE-BASED RESPONSES (FALLBACK) ───────────────────────────────────
+    // ── STEP 2: DETECT INTENT ──
+    const intent = detectIntent(message.toLowerCase());
 
-function nl2(...lines: string[]) {
+    // ── STEP 3: TRY GEMINI FIRST ──
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (apiKey) {
+      const systemPrompt = buildAgentSystemPrompt(ctxData, history);
+      const result = await callGemini(apiKey, systemPrompt, effectiveQuery, history);
+      if (result && result.length > 10) {
+        return result;
+      }
+    }
+
+    // ── STEP 4: RULE-BASED FALLBACK (NEVER GENERIC) ──
+    return generateRuleBasedResponse(intent, message, ctxData, isFollowUp, history);
+  },
+});
+
+// ─── RULE-BASED RESPONSES (NEVER GENERIC) ────────────────────────────────────
+
+function nl(...lines: string[]) {
   return lines.filter(Boolean).join("\n");
 }
 
-function generateSmartResponse(
+function generateRuleBasedResponse(
   intent: string,
-  q: string,
-  ctx: ContextData
+  message: string,
+  ctx: ContextData,
+  isFollowUp: boolean,
+  history: Array<{ role: string; content: string }>
 ): string {
+  // For follow-ups, always reference previous context
+  const lastAssistant = [...history].reverse().find((m) => m.role === "assistant");
+  const contextPrefix = isFollowUp && lastAssistant
+    ? `Based on our previous discussion:\n\n`
+    : "";
+
   switch (intent) {
     case "greeting": {
       if (ctx.projectName) {
-        return nl2(
+        return nl(
           `Hey! 👋 I'm your AI workspace agent for **${ctx.projectName}**.`,
           ctx.totalTasks > 0
             ? `Currently at **${ctx.completionRate}% completion** with **${ctx.totalTasks} tasks** — ${ctx.totalInProgress} in progress, ${ctx.totalRisk} at risk.`
@@ -347,7 +534,7 @@ function generateSmartResponse(
         );
       }
       if (ctx.totalProjects > 0) {
-        return nl2(
+        return nl(
           `Hey there! 👋 Welcome back to KORTEX AI.`,
           `Your workspace has **${ctx.totalProjects} project${ctx.totalProjects !== 1 ? "s" : ""}** with **${ctx.totalTasks} task${ctx.totalTasks !== 1 ? "s" : ""}**.`,
           ctx.totalInProgress > 0 ? `${ctx.totalInProgress} task${ctx.totalInProgress !== 1 ? "s are" : " is"} in progress.` : "No tasks in progress right now.",
@@ -356,7 +543,7 @@ function generateSmartResponse(
           "I'm your autonomous workspace agent. Ask me anything — I'll investigate your data first."
         );
       }
-      return nl2(
+      return nl(
         "Hey there! 👋 I'm **KORTEX AI** — your autonomous workspace intelligence agent.",
         "",
         "I'm not a chatbot. I investigate your entire workspace before answering every question.",
@@ -365,58 +552,34 @@ function generateSmartResponse(
     }
 
     case "identity":
-      return nl2(
+      return nl(
         "I'm **KORTEX AI** — an autonomous workspace intelligence agent.",
         "",
         "Unlike a chatbot, I **always investigate your workspace data** before answering.",
         "I understand your projects, tasks, sprints, risks, architecture, and analytics.",
         "",
-        "**What I can do:**",
-        "• Analyze project health and progress with real numbers",
-        "• Detect risks, blockers, and overdue tasks",
-        "• Plan sprints based on velocity and dependencies",
-        "• Explain your project architecture and tech stack",
-        "• Recommend what to build next based on priorities",
-        "• Generate task breakdowns and sprint plans",
-        "• Answer any software development question with workspace context",
-        "",
-        "Just ask naturally — I'll investigate your data first."
+        "Ask me anything about your workspace — I'll give you specific answers with real numbers."
       );
 
-    case "help": {
-      return nl2(
-        "**Here's what I can do as your workspace agent:**",
+    case "help":
+      return nl(
+        `**${ctx.projectName ? "Project" : "Workspace"} Intelligence Active:**`,
         "",
-        "📊 **Project Intelligence**",
-        "• \"How is my project doing?\" — Full status with real numbers",
-        "• \"What are the risks?\" — Specific risky tasks and mitigations",
-        "• \"Explain my project\" — Architecture, tech stack, features",
+        `📊 **Status:** ${ctx.totalTasks} tasks, ${ctx.completionRate}% complete, ${ctx.totalRisk} at risk`,
+        ctx.activeSprint ? `🏃 **Sprint:** ${ctx.activeSprint.name} — ${ctx.activeSprint.completedTasks}/${ctx.activeSprint.taskCount} done` : "",
+        ctx.analyses.length > 0 ? `🏗️ **Repository:** ${ctx.analyses[0].name} — Score: ${ctx.analyses[0].score}/100` : "",
         "",
-        "🏃 **Sprint Planning**",
-        "• \"What should I work on next?\" — Priority-based recommendations",
-        "• \"Plan a sprint\" — Task selection based on velocity",
-        "• \"We are delayed\" — Recovery plan with task reordering",
-        "",
-        "🔍 **Risk & Analysis**",
-        "• \"What's blocking us?\" — Dependencies and blockers",
-        "• \"Which tasks are overdue?\" — Specific overdue items",
-        "• \"Give me an executive summary\" — Portfolio-wide overview",
-        "",
-        "💬 **General Knowledge**",
-        "• Ask me anything about software development, architecture, best practices!",
-        "",
-        "I investigate your workspace data **before every response**."
+        "Ask me anything — I'll investigate your data and give you specific, actionable answers."
       );
-    }
 
     case "progress": {
       if (ctx.totalTasks === 0) {
         return ctx.projectName
-          ? nl2(
+          ? nl(
               `**${ctx.projectName}** has no tasks yet.`,
               "Create some tasks from the project dashboard and I'll start tracking your progress automatically."
             )
-          : nl2(
+          : nl(
               `You have ${ctx.totalProjects} project${ctx.totalProjects !== 1 ? "s" : ""} but no tasks yet.`,
               "Create a project and add some tasks to unlock AI-powered tracking."
             );
@@ -441,7 +604,7 @@ function generateSmartResponse(
         }
         return lines.join("\n");
       }
-      return nl2(
+      return nl(
         "**Workspace Overview:**",
         "",
         `• **${ctx.totalProjects}** projects (${ctx.activeProjects} active)`,
@@ -455,12 +618,12 @@ function generateSmartResponse(
 
     case "risk": {
       if (ctx.totalRisk === 0 && ctx.totalOverdue === 0) {
-        return nl2(
+        return nl(
           "✅ **All clear!** No high-risk or overdue tasks detected.",
           "Your workspace is healthy. Keep monitoring deadlines and task priorities to maintain this status."
         );
       }
-      const lines = [];
+      const lines: string[] = [];
       if (ctx.totalOverdue > 0) {
         lines.push(`⏰ **${ctx.totalOverdue} Overdue Task${ctx.totalOverdue !== 1 ? "s" : ""}:**`);
         ctx.tasks
@@ -497,7 +660,6 @@ function generateSmartResponse(
         }
         if (ctx.completionRate > 80) {
           suggestions.push("Great progress! Consider starting a new sprint or closing this project.");
-          suggestions.push("Document what went well for future reference.");
         }
         if (ctx.completionRate < 30 && ctx.totalTasks > 5) {
           suggestions.push("Break large tasks into smaller, more manageable subtasks (aim for 2-4h each).");
@@ -512,17 +674,14 @@ function generateSmartResponse(
           suggestions.push(`Re-prioritize the ${ctx.totalOverdue} overdue task${ctx.totalOverdue !== 1 ? "s" : ""} — they may block other work.`);
         }
         if (suggestions.length === 0) {
-          suggestions.push("Your workflow looks solid! Keep up the great work.");
-          suggestions.push("Consider setting up sprint goals if you haven't already.");
+          suggestions.push("Your workflow looks solid! Consider setting up sprint goals if you haven't already.");
         }
       }
       return `**My Recommendations:**\n\n${suggestions.map((s, i) => `${i + 1}. ${s}`).join("\n")}`;
     }
 
     case "sprint": {
-      const readyTasks = ctx.tasks.filter(
-        (t) => t.status === "backlog" || t.status === "todo"
-      );
+      const readyTasks = ctx.tasks.filter((t) => t.status === "backlog" || t.status === "todo");
       const lines = [
         "**Sprint Planning Analysis:**",
         "",
@@ -564,7 +723,7 @@ function generateSmartResponse(
     }
 
     case "analytics": {
-      return nl2(
+      return nl(
         "**Workspace Analytics:**",
         "",
         `📊 **Completion Rate: ${ctx.completionRate}%**`,
@@ -580,7 +739,7 @@ function generateSmartResponse(
     case "architecture": {
       if (ctx.analyses.length > 0) {
         const a = ctx.analyses[0];
-        return nl2(
+        return nl(
           `**Project Architecture — ${a.name}:**`,
           "",
           `🏗️ **Architecture:** ${a.architecture}`,
@@ -591,20 +750,19 @@ function generateSmartResponse(
           `• Backend: ${a.techStack.backend.join(", ") || "Not detected"}`,
           `• Database: ${a.techStack.database.join(", ") || "Not detected"}`,
           `• Cloud: ${a.techStack.cloud.join(", ") || "Not detected"}`,
-          `• AI: ${a.techStack.ai.join(", ") || "Not detected"}`,
           "",
           `**Strengths:** ${a.strengths.join("; ")}`,
           `**Weaknesses:** ${a.weaknesses.join("; ")}`
         );
       }
-      return nl2(
+      return nl(
         "**No repository analysis found.**",
         "Import a project using the 'Import Project' button to get AI-powered architecture analysis."
       );
     }
 
     case "team":
-      return nl2(
+      return nl(
         "**Team Collaboration Tips:**",
         "",
         "• Assign tasks based on strengths and availability",
@@ -620,244 +778,56 @@ function generateSmartResponse(
     case "farewell":
       return "See you later! 👋 I'll keep monitoring your workspace. Come back anytime!";
 
-    case "general":
-    default: {
-      if (ctx.totalProjects > 0) {
-        return nl2(
-          "Great question! As your workspace intelligence agent, I can answer both **project-specific** and **general** questions.",
-          ctx.projectName
-            ? `For your project **${ctx.projectName}** (${ctx.completionRate}% complete), try asking about:`
-            : "Try asking me about:",
+    case "explain":
+    case "create":
+    case "review": {
+      // For explain/create/review intents, provide workspace-specific guidance
+      if (ctx.totalTasks > 0) {
+        const highPriority = ctx.tasks.filter((t) => t.priority === "critical" || t.priority === "high").slice(0, 3);
+        return nl(
+          contextPrefix,
+          `Based on your current workspace (${ctx.completionRate}% complete):`,
           "",
-          "• Project progress and status",
-          "• Risk analysis and blockers",
-          "• Sprint planning",
-          "• Task prioritization",
-          "• Architecture and tech stack",
+          highPriority.length > 0
+            ? `**High-priority items:** ${highPriority.map((t) => `"${t.title}" [${t.status}]`).join(", ")}`
+            : `**Current tasks:** ${ctx.totalTasks} total, ${ctx.totalInProgress} in progress`,
           "",
-          "Or ask me anything about software development!"
+          "What specific aspect would you like me to focus on?"
         );
       }
-      return nl2(
-        "I'm your autonomous workspace agent! I investigate your data before every answer.",
+      return nl(
+        "I'd be happy to help! Your workspace is currently empty.",
+        "Create a project and add tasks, and I'll be able to give you specific, data-driven answers."
+      );
+    }
+
+    case "general":
+    default: {
+      // For general questions, provide workspace-aware responses
+      if (ctx.totalTasks > 0) {
+        const activeTasks = ctx.tasks.filter((t) => t.status === "in_progress");
+        return nl(
+          contextPrefix,
+          `I can help with that! Here's what I see in your workspace:`,
+          "",
+          `📊 **Current State:** ${ctx.completionRate}% complete, ${ctx.totalTasks} tasks total`,
+          activeTasks.length > 0 ? `🔄 **Active:** ${activeTasks.map((t) => `"${t.title}"`).join(", ")}` : "",
+          ctx.totalRisk > 0 ? `⚠️ **Risks:** ${ctx.totalRisk} high-risk tasks` : "",
+          ctx.totalOverdue > 0 ? `⏰ **Overdue:** ${ctx.totalOverdue} tasks` : "",
+          "",
+          "What would you like me to investigate or explain?"
+        );
+      }
+      return nl(
+        `I can help with that! Your workspace has ${ctx.totalProjects} project${ctx.totalProjects !== 1 ? "s" : ""}.`,
         "",
-        "Try asking me about:",
-        "• **Project management** — planning, tracking, delivery",
-        "• **Software development** — architecture, best practices, debugging",
-        "• **Sprint planning** — velocity, task selection, capacity",
-        "",
-        "Or create a project and I'll start tracking everything for you."
+        "Ask me about:",
+        "• Project progress and health status",
+        "• Risk analysis and blockers",
+        "• Sprint planning and task prioritization",
+        "• Architecture and tech stack",
+        "• Or any software development question"
       );
     }
   }
 }
-
-// ─── PUBLIC ACTION ────────────────────────────────────────────────────────────
-
-/** Generate AI response using Gemini with full workspace context */
-export const generateResponse = action({
-  args: {
-    projectId: v.optional(v.id("projects")),
-    userMessage: v.string(),
-    conversationHistory: v.optional(
-      v.array(
-        v.object({
-          role: v.union(v.literal("user"), v.literal("assistant")),
-          content: v.string(),
-        })
-      )
-    ),
-  },
-  handler: async (ctx, args) => {
-    const apiKey = process.env.GEMINI_API_KEY;
-    const api = (await import("./_generated/api")).api;
-
-    // ── GATHER FULL WORKSPACE CONTEXT ──────────────────────────────────
-    const context: ContextData = {
-      stage: "Planning",
-      tasks: [],
-      totalTasks: 0,
-      totalDone: 0,
-      totalInProgress: 0,
-      totalTodo: 0,
-      totalBacklog: 0,
-      totalReview: 0,
-      totalCancelled: 0,
-      totalRisk: 0,
-      totalOverdue: 0,
-      completionRate: 0,
-      totalProjects: 0,
-      activeProjects: 0,
-      sprints: [],
-      analyses: [],
-      recentActivity: [],
-      comments: [],
-    };
-
-    if (args.projectId) {
-      // ── PROJECT-SCOPED CONTEXT ──
-      const project = await ctx.runQuery(api.projects.get, { projectId: args.projectId });
-      const user = await ctx.runQuery(api.users.currentUser);
-      if (project) {
-        context.userName = user?.name;
-        context.projectName = project.name;
-        context.projectDescription = project.description;
-        context.projectStatus = project.status;
-        context.healthScore = project.healthScore;
-        context.sprintDuration = project.sprintDuration;
-        context.totalProjects = 1;
-        context.activeProjects = project.status === "active" ? 1 : 0;
-      }
-
-      const tasks = await ctx.runQuery(api.tasks.list, { projectId: args.projectId });
-      context.tasks = tasks.map((t) => ({
-        title: t.title,
-        status: t.status,
-        priority: t.priority,
-        description: t.description,
-        aiRiskScore: t.aiRiskScore,
-        dueDate: t.dueDate,
-        estimatedHours: t.estimatedHours,
-        tags: t.tags,
-        aiGenerated: t.aiGenerated,
-      }));
-      context.totalTasks = tasks.length;
-      context.totalDone = tasks.filter((t) => t.status === "done").length;
-      context.totalInProgress = tasks.filter((t) => t.status === "in_progress").length;
-      context.totalTodo = tasks.filter((t) => t.status === "todo").length;
-      context.totalBacklog = tasks.filter((t) => t.status === "backlog").length;
-      context.totalReview = tasks.filter((t) => t.status === "in_review").length;
-      context.totalCancelled = tasks.filter((t) => t.status === "cancelled").length;
-      context.totalRisk = tasks.filter((t) => (t.aiRiskScore ?? 0) > 0.7).length;
-      context.totalOverdue = tasks.filter(
-        (t) => t.dueDate && t.dueDate < Date.now() && t.status !== "done"
-      ).length;
-      context.completionRate =
-        context.totalTasks > 0 ? Math.round((context.totalDone / context.totalTasks) * 100) : 0;
-
-      context.stage = computeStage(context.completionRate, context.totalTasks);
-
-      // Gather sprints
-      try {
-        const sprints = await ctx.runQuery(api.sprints.list, { projectId: args.projectId });
-        context.sprints = sprints.map((s) => ({
-          name: s.name,
-          status: s.status,
-          goal: s.goal,
-          taskCount: s.taskCount,
-          completedTasks: s.completedTasks,
-          startDate: s.startDate,
-          endDate: s.endDate,
-        }));
-        const activeSprint = sprints.find((s) => s.status === "active");
-        if (activeSprint) {
-          context.activeSprint = {
-            name: activeSprint.name,
-            goal: activeSprint.goal,
-            taskCount: activeSprint.taskCount,
-            completedTasks: activeSprint.completedTasks,
-          };
-        }
-      } catch { /* sprints may not exist */ }
-
-      // Gather project analyses
-      try {
-        const analyses = await ctx.runQuery(
-          // @ts-expect-error query may not be generated yet
-          api.projectScanner?.listByProject ?? (() => []),
-          { projectId: args.projectId }
-        );
-        if (analyses && analyses.length > 0) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          context.analyses = analyses.map((a: any) => ({
-            url: a.url,
-            name: a.repoInfo?.name ?? "Repository",
-            type: a.urlType,
-            score: a.scores?.overall ?? 0,
-            stage: a.recommendations?.developmentStage ?? "Unknown",
-            summary: a.analysis?.executiveSummary ?? "",
-            strengths: a.recommendations?.strengths ?? [],
-            weaknesses: a.recommendations?.weaknesses ?? [],
-            recommendations: a.recommendations?.immediate ?? [],
-            techStack: a.analysis?.techStack ?? { frontend: [], backend: [], database: [], cloud: [], ai: [] },
-            architecture: a.analysis?.architecture ?? "Not analyzed",
-          }));
-        }
-      } catch { /* analyses may not exist */ }
-    } else {
-      // ── GLOBAL WORKSPACE CONTEXT ──
-      const user = await ctx.runQuery(api.users.currentUser);
-      context.userName = user?.name;
-
-      const projects = await ctx.runQuery(api.projects.list, {});
-      context.totalProjects = projects.length;
-      context.activeProjects = projects.filter((p) => p.status === "active").length;
-
-      for (const p of projects) {
-        try {
-          const tasks = await ctx.runQuery(api.tasks.list, { projectId: p._id });
-          context.totalTasks += tasks.length;
-          context.totalDone += tasks.filter((t) => t.status === "done").length;
-          context.totalInProgress += tasks.filter((t) => t.status === "in_progress").length;
-          context.totalTodo += tasks.filter((t) => t.status === "todo").length;
-          context.totalBacklog += tasks.filter((t) => t.status === "backlog").length;
-          context.totalReview += tasks.filter((t) => t.status === "in_review").length;
-          context.totalCancelled += tasks.filter((t) => t.status === "cancelled").length;
-          context.totalRisk += tasks.filter((t) => (t.aiRiskScore ?? 0) > 0.7).length;
-          context.totalOverdue += tasks.filter(
-            (t) => t.dueDate && t.dueDate < Date.now() && t.status !== "done"
-          ).length;
-          context.tasks = context.tasks.concat(
-            tasks.map((t) => ({
-              title: t.title,
-              status: t.status,
-              priority: t.priority,
-              description: t.description,
-              aiRiskScore: t.aiRiskScore,
-              dueDate: t.dueDate,
-              estimatedHours: t.estimatedHours,
-              tags: t.tags,
-              aiGenerated: t.aiGenerated,
-            }))
-          );
-
-          // Gather sprints per project
-          try {
-            const sprints = await ctx.runQuery(api.sprints.list, { projectId: p._id });
-            context.sprints = context.sprints.concat(
-              sprints.map((s) => ({
-                name: `${p.name} / ${s.name}`,
-                status: s.status,
-                goal: s.goal,
-                taskCount: s.taskCount,
-                completedTasks: s.completedTasks,
-                startDate: s.startDate,
-                endDate: s.endDate,
-              }))
-            );
-          } catch { /* skip */ }
-        } catch { /* skip failed project */ }
-      }
-
-      context.completionRate =
-        context.totalTasks > 0 ? Math.round((context.totalDone / context.totalTasks) * 100) : 0;
-      context.stage = computeStage(context.completionRate, context.totalTasks);
-    }
-
-    // ── TRY GEMINI FIRST ──────────────────────────────────────────────
-    if (apiKey) {
-      const systemPrompt = buildAgentSystemPrompt(context);
-      const history = args.conversationHistory?.map((m) => ({
-        role: m.role,
-        content: m.content,
-      }));
-
-      const geminiResponse = await callGemini(apiKey, systemPrompt, args.userMessage, history);
-      if (geminiResponse) return geminiResponse;
-    }
-
-    // ── FALLBACK: SMART RULE-BASED RESPONSES ──────────────────────────
-    const intent = detectIntent(args.userMessage.toLowerCase());
-    return generateSmartResponse(intent, args.userMessage.toLowerCase(), context);
-  },
-});

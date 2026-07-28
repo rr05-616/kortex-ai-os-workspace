@@ -144,8 +144,6 @@ function ContextStatus({
   );
 }
 
-
-
 // ─── DYNAMIC SUGGESTIONS ─────────────────────────────────────────────────────
 
 function useDynamicSuggestions({
@@ -239,7 +237,6 @@ function usePostMessageSuggestions({
     }
 
     return s.slice(0, 3);
-     
   }, [lastMessage]);
 }
 
@@ -248,7 +245,6 @@ function usePostMessageSuggestions({
 function renderMarkdown(text: string) {
   const lines = text.split("\n");
   return lines.map((line, i) => {
-    // Bold text
     const boldRegex = /\*\*(.+?)\*\*/g;
     const parts: React.ReactNode[] = [];
     let lastIndex = 0;
@@ -265,7 +261,6 @@ function renderMarkdown(text: string) {
     if (lastIndex < line.length) parts.push(line.slice(lastIndex));
     const processed = parts.length > 0 ? parts : line;
 
-    // Bullet points
     if (line.startsWith("• ") || line.startsWith("- "))
       return (
         <div key={i} className="flex gap-2 ml-1 my-0.5">
@@ -274,7 +269,6 @@ function renderMarkdown(text: string) {
         </div>
       );
 
-    // Numbered list
     const numMatch = line.match(/^(\d+)\.\s/);
     if (numMatch)
       return (
@@ -284,10 +278,8 @@ function renderMarkdown(text: string) {
         </div>
       );
 
-    // Empty lines
     if (line.trim() === "") return <div key={i} className="h-2" />;
 
-    // Section headers (═══ ... ═══)
     if (line.startsWith("═"))
       return (
         <div key={i} className="text-[10px] text-[#0E9F6E]/40 font-mono mt-2 mb-1 tracking-widest">
@@ -330,8 +322,9 @@ export default function AICopilot({
     {}
   ) as GlobalInsightData | null | undefined;
   const createConversation = useMutation(api.ai.createConversation);
-  const generateAIResponse = useAction(api.aiActions.generateResponse);
   const sendMessageMutation = useMutation(api.ai.sendMessage);
+  const saveAssistantResponse = useMutation(api.ai.saveAssistantResponse);
+  const generateAIResponse = useAction(api.aiActions.generateResponse);
 
   const conversationIdRef = useRef<Id<"aiConversations"> | null>(null);
   const [conversationId, setConversationId] = useState<Id<"aiConversations"> | null>(null);
@@ -354,12 +347,90 @@ export default function AICopilot({
     conversationIdRef.current = conversationId;
   }, [conversationId]);
 
-
-
   // Auto-scroll
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isTyping]);
+
+  // ── BUILD CONTEXT FROM QUERIED DATA ──
+  const buildContext = () => {
+    if (projectId && projectData) {
+      return {
+        userName: undefined,
+        projectName: projectData.project.name,
+        projectDescription: undefined,
+        projectStatus: projectData.project.status,
+        healthScore: projectData.project.healthScore,
+        sprintDuration: projectData.project.sprintDuration,
+        stage: projectData.stage,
+        tasks: [],
+        totalTasks: projectData.stats.total,
+        totalDone: projectData.stats.done,
+        totalInProgress: projectData.stats.inProgress,
+        totalTodo: projectData.stats.todo,
+        totalBacklog: projectData.stats.backlog,
+        totalReview: projectData.stats.review,
+        totalRisk: projectData.stats.highRisk,
+        totalOverdue: projectData.stats.overdue,
+        completionRate: projectData.stats.completionRate,
+        totalProjects: 1,
+        activeProjects: projectData.project.status === "active" ? 1 : 0,
+        sprints: [],
+        activeSprint: undefined,
+        analyses: [],
+      };
+    }
+    if (globalData) {
+      return {
+        userName: undefined,
+        projectName: undefined,
+        projectDescription: undefined,
+        projectStatus: undefined,
+        healthScore: undefined,
+        sprintDuration: undefined,
+        stage: "Planning",
+        tasks: [],
+        totalTasks: globalData.totalTasks,
+        totalDone: globalData.totalDone,
+        totalInProgress: globalData.totalInProgress,
+        totalTodo: 0,
+        totalBacklog: 0,
+        totalReview: 0,
+        totalRisk: globalData.totalRisk,
+        totalOverdue: globalData.totalOverdue,
+        completionRate: globalData.globalCompletion,
+        totalProjects: globalData.totalProjects,
+        activeProjects: globalData.activeProjects,
+        sprints: [],
+        activeSprint: undefined,
+        analyses: [],
+      };
+    }
+    return {
+      userName: undefined,
+      projectName: undefined,
+      projectDescription: undefined,
+      projectStatus: undefined,
+      healthScore: undefined,
+      sprintDuration: undefined,
+      stage: "Planning",
+      tasks: [],
+      totalTasks: 0,
+      totalDone: 0,
+      totalInProgress: 0,
+      totalTodo: 0,
+      totalBacklog: 0,
+      totalReview: 0,
+      totalRisk: 0,
+      totalOverdue: 0,
+      completionRate: 0,
+      totalProjects: 0,
+      activeProjects: 0,
+      sprints: [],
+      activeSprint: undefined,
+      analyses: [],
+    };
+  };
 
   // ── SEND MESSAGE HANDLER ──
   const handleSend = async (text?: string) => {
@@ -377,9 +448,10 @@ export default function AICopilot({
         setAgentStep(steps[stepIdx]);
         stepIdx++;
       }
-    }, 500);
+    }, 400);
 
     try {
+      // Step 1: Create conversation if needed
       let convId = conversationIdRef.current;
       if (!convId) {
         convId = await createConversation({
@@ -390,35 +462,53 @@ export default function AICopilot({
         setConversationId(convId);
       }
 
-      // Try Gemini first, fall back to rule-based
+      // Step 2: Save user message via mutation (this updates the DB)
+      const result = await sendMessageMutation({
+        conversationId: convId,
+        content,
+      });
+
+      // Step 3: Call the AI action with full context + conversation history
+      const context = buildContext();
+      const conversationHistory = (result?.conversationHistory ?? []).concat([
+        { role: "user", content },
+      ]);
+
       let response: string | null = null;
       try {
         response = await generateAIResponse({
           projectId,
           userMessage: content,
-          conversationHistory: messages.slice(-10).map((m) => ({
-            role: m.role,
-            content: m.content,
-          })),
+          conversationHistory,
+          context,
         });
-      } catch {
-        /* fall back to rule-based */
-      }
-
-      if (response) {
-        setMessages((prev) => [...prev, { role: "assistant", content: response! }]);
-      } else {
-        const updatedMessages = await sendMessageMutation({
-          conversationId: convId,
-          content,
-        });
+      } catch (actionErr) {
+        console.error("AI action error:", actionErr);
+        // If action fails, try to get from the saved conversation
+        const updatedMessages = result?.messages;
         if (updatedMessages && updatedMessages.length > 0) {
           const assistantMsg = updatedMessages[updatedMessages.length - 1];
-          setMessages((prev) => [
-            ...prev,
-            { role: assistantMsg.role, content: assistantMsg.content },
-          ]);
+          if (assistantMsg.role === "assistant") {
+            response = assistantMsg.content;
+          }
         }
+      }
+
+      // Step 4: Save the assistant response to the conversation
+      if (response) {
+        await saveAssistantResponse({
+          conversationId: convId,
+          content: response,
+        });
+        setMessages((prev) => [...prev, { role: "assistant", content: response! }]);
+      } else {
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: "assistant",
+            content: "I encountered an issue processing your request. Please try again.",
+          },
+        ]);
       }
     } catch (err) {
       console.error("AI Agent error:", err);
@@ -426,8 +516,7 @@ export default function AICopilot({
         ...prev,
         {
           role: "assistant",
-          content:
-            "I encountered an error connecting to the workspace. Please try again.",
+          content: "I encountered an error connecting to the workspace. Please try again.",
         },
       ]);
     } finally {
