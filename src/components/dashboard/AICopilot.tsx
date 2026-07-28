@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useMemo } from "react";
-import { useQuery, useMutation } from "convex/react";
+import { useQuery, useMutation, useAction } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { motion, AnimatePresence } from "framer-motion";
@@ -314,6 +314,9 @@ export function AICopilot({ projectId, onClose, expanded }: AICopilotProps) {
   const sendMessageMutation = useMutation(api.ai.sendMessage);
   const saveAssistantResponse = useMutation(api.ai.saveAssistantResponse);
 
+  // Actions
+  const generateResponse = useAction(api.aiActions.generateResponse);
+
   // Check backend health on mount
   const [backendReady, setBackendReady] = useState<boolean | null>(null);
   useEffect(() => {
@@ -402,14 +405,35 @@ export function AICopilot({ projectId, onClose, expanded }: AICopilotProps) {
         content: text,
       });
 
-      // Call FastAPI Python backend for AI response
-      const backendResponse = await sendToBackend(
-        text,
-        activeConversationId as unknown as string,
-        projectId as unknown as string,
-        result.conversationHistory,
-      );
-      const response = backendResponse.response;
+      // Try FastAPI Python backend first, fall back to Convex action
+      let response: string;
+      if (backendReady) {
+        try {
+          const backendResponse = await sendToBackend(
+            text,
+            activeConversationId as unknown as string,
+            projectId as unknown as string,
+            result.conversationHistory,
+          );
+          response = backendResponse.response;
+        } catch {
+          // FastAPI unavailable — fall back to Convex action
+          response = await generateResponse({
+            projectId: projectId ?? undefined,
+            userMessage: text,
+            conversationHistory: result.conversationHistory,
+            context: result.context,
+          });
+        }
+      } else {
+        // FastAPI not ready — use Convex action directly
+        response = await generateResponse({
+          projectId: projectId ?? undefined,
+          userMessage: text,
+          conversationHistory: result.conversationHistory,
+          context: result.context,
+        });
+      }
 
       // Save assistant response
       const updatedMessages = await saveAssistantResponse({
