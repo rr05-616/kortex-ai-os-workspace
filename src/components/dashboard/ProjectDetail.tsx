@@ -2,8 +2,8 @@ import { useState } from "react";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import { motion } from "framer-motion";
-import { ArrowLeft, Plus, Loader2, CheckCircle2, AlertCircle, Clock, CircleDot, ListTodo, Sparkles } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { ArrowLeft, Plus, Loader2, CheckCircle2, AlertCircle, Clock, CircleDot, ListTodo, Sparkles, Trash2, ChevronDown, GripVertical } from "lucide-react";
 
 interface ProjectDetailProps {
   projectId: Id<"projects">;
@@ -24,13 +24,26 @@ const statusLabels: Record<string, string> = {
   in_review: "In Review", done: "Done", cancelled: "Cancelled",
 };
 
+const statusOrder = ["backlog", "todo", "in_progress", "in_review", "done"];
+
+const statusTransitions: Record<string, string[]> = {
+  backlog: ["todo"],
+  todo: ["in_progress", "backlog"],
+  in_progress: ["in_review", "todo", "done"],
+  in_review: ["done", "in_progress"],
+  done: ["in_progress"],
+};
+
 export default function ProjectDetail({ projectId, onBack }: ProjectDetailProps) {
   const project = useQuery(api.projects.get, { projectId });
   const tasks = useQuery(api.tasks.list, { projectId });
   const stats = useQuery(api.projects.stats, { projectId });
   const createTask = useMutation(api.tasks.create);
+  const updateTask = useMutation(api.tasks.update);
+  const removeTask = useMutation(api.tasks.remove);
   const [newTaskTitle, setNewTaskTitle] = useState("");
   const [creatingTask, setCreatingTask] = useState(false);
+  const [expandedTask, setExpandedTask] = useState<Id<"tasks"> | null>(null);
 
   const handleCreateTask = async () => {
     if (!newTaskTitle.trim()) return;
@@ -42,6 +55,22 @@ export default function ProjectDetail({ projectId, onBack }: ProjectDetailProps)
       console.error("Failed to create task:", err);
     } finally {
       setCreatingTask(false);
+    }
+  };
+
+  const handleStatusChange = async (taskId: Id<"tasks">, newStatus: string) => {
+    try {
+      await updateTask({ taskId, status: newStatus as any });
+    } catch (err) {
+      console.error("Failed to update task:", err);
+    }
+  };
+
+  const handleDeleteTask = async (taskId: Id<"tasks">) => {
+    try {
+      await removeTask({ taskId });
+    } catch (err) {
+      console.error("Failed to delete task:", err);
     }
   };
 
@@ -84,6 +113,7 @@ export default function ProjectDetail({ projectId, onBack }: ProjectDetailProps)
         </div>
       )}
 
+      {/* Add Task — fully functional */}
       <div className="glass rounded-xl p-4 mb-4">
         <div className="flex items-center gap-2">
           <input value={newTaskTitle} onChange={(e) => setNewTaskTitle(e.target.value)} placeholder="Add a new task..."
@@ -97,8 +127,9 @@ export default function ProjectDetail({ projectId, onBack }: ProjectDetailProps)
         </div>
       </div>
 
+      {/* Task columns by status — with status toggling and delete */}
       <div className="space-y-3">
-        {["backlog", "todo", "in_progress", "in_review", "done"].map((status) => {
+        {statusOrder.map((status) => {
           const statusTasks = tasksByStatus[status] || [];
           if (statusTasks.length === 0) return null;
           return (
@@ -111,15 +142,55 @@ export default function ProjectDetail({ projectId, onBack }: ProjectDetailProps)
               <div className="space-y-1">
                 {statusTasks.map((task, i) => (
                   <motion.div key={task._id} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.3, delay: i * 0.03 }}
-                    className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-[rgba(255,255,255,0.02)] transition-colors">
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm text-[rgba(232,245,238,0.7)] truncate">{task.title}</p>
-                      <div className="flex items-center gap-2 mt-0.5">
-                        <span className="text-[10px] text-[rgba(232,245,238,0.25)] capitalize">{task.priority}</span>
-                        {task.aiGenerated && <span className="flex items-center gap-0.5 text-[10px] text-[#0E9F6E]"><Sparkles className="w-2.5 h-2.5" />AI</span>}
+                    className="group">
+                    <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-[rgba(255,255,255,0.02)] transition-colors">
+                      <GripVertical className="w-3 h-3 text-[rgba(232,245,238,0.1)] group-hover:text-[rgba(232,245,238,0.2)] shrink-0" />
+                      <div className="flex-1 min-w-0" onClick={() => setExpandedTask(expandedTask === task._id ? null : task._id)}>
+                        <p className="text-sm text-[rgba(232,245,238,0.7)] truncate cursor-pointer">{task.title}</p>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <span className="text-[10px] text-[rgba(232,245,238,0.25)] capitalize">{task.priority}</span>
+                          {task.aiGenerated && <span className="flex items-center gap-0.5 text-[10px] text-[#0E9F6E]"><Sparkles className="w-2.5 h-2.5" />AI</span>}
+                        </div>
                       </div>
+                      {task.aiRiskScore && task.aiRiskScore > 0.5 && <AlertCircle className="w-3.5 h-3.5 text-amber-500 shrink-0" />}
+                      {/* Status change dropdown */}
+                      {statusTransitions[status] && statusTransitions[status].length > 0 && (
+                        <div className="relative shrink-0">
+                          <select
+                            value={status}
+                            onChange={(e) => handleStatusChange(task._id, e.target.value)}
+                            className="appearance-none bg-transparent text-[10px] text-[rgba(232,245,238,0.4)] border border-[rgba(255,255,255,0.06)] rounded-lg px-2 py-1 pr-5 cursor-pointer hover:border-[rgba(14,159,110,0.2)] transition-colors focus:outline-none focus:border-[rgba(14,159,110,0.3)]"
+                          >
+                            {statusOrder.map((s) => (
+                              <option key={s} value={s} className="bg-[#07120D] text-[#E8F5EE]">{statusLabels[s]}</option>
+                            ))}
+                          </select>
+                          <ChevronDown className="w-2.5 h-2.5 text-[rgba(232,245,238,0.3)] absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                        </div>
+                      )}
+                      <button onClick={() => handleDeleteTask(task._id)}
+                        className="w-6 h-6 rounded flex items-center justify-center opacity-0 group-hover:opacity-100 hover:bg-red-500/10 transition-all shrink-0">
+                        <Trash2 className="w-3 h-3 text-red-400" />
+                      </button>
                     </div>
-                    {task.aiRiskScore && task.aiRiskScore > 0.5 && <AlertCircle className="w-3.5 h-3.5 text-amber-500 shrink-0" />}
+                    {/* Expanded task details */}
+                    <AnimatePresence>
+                      {expandedTask === task._id && (
+                        <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }}
+                          className="overflow-hidden px-3 pb-2">
+                          <div className="ml-6 pt-2 border-t border-[rgba(255,255,255,0.04)]">
+                            {task.description && <p className="text-xs text-[rgba(232,245,238,0.35)] mb-2">{task.description}</p>}
+                            <div className="flex flex-wrap gap-2 text-[10px] text-[rgba(232,245,238,0.25)]">
+                              {task.dueDate && <span>Due: {new Date(task.dueDate).toLocaleDateString()}</span>}
+                              {task.estimatedHours && <span>Est: {task.estimatedHours}h</span>}
+                              {task.tags && task.tags.length > 0 && task.tags.map((tag) => (
+                                <span key={tag} className="px-1.5 py-0.5 rounded bg-[rgba(255,255,255,0.03)]">{tag}</span>
+                              ))}
+                            </div>
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
                   </motion.div>
                 ))}
               </div>

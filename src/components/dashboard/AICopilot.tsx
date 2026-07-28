@@ -77,7 +77,7 @@ const quickSuggestions = [
 ];
 
 export default function AICopilot({ projectId, onClose, expanded = false }: AICopilotProps) {
-  const [chatOpen, setChatOpen] = useState(false);
+  const [chatOpen, setChatOpen] = useState(expanded);
   const [inputValue, setInputValue] = useState("");
   const [messages, setMessages] = useState<Array<{ role: "user" | "assistant"; content: string }>>([]);
   const [isTyping, setIsTyping] = useState(false);
@@ -86,11 +86,17 @@ export default function AICopilot({ projectId, onClose, expanded = false }: AICo
   const projectData = useQuery(api.ai.getProjectInsights, projectId ? { projectId } : "skip") as ProjectInsightData | null | undefined;
   const globalData = useQuery(api.ai.getGlobalInsights, {}) as GlobalInsightData | null | undefined;
   const createConversation = useMutation(api.ai.createConversation);
+  const sendMessageMutation = useMutation(api.ai.sendMessage);
   const [conversationId, setConversationId] = useState<Id<"aiConversations"> | null>(null);
+
+  // Auto-open chat when expanded
+  useEffect(() => {
+    if (expanded) setChatOpen(true);
+  }, [expanded]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  }, [messages, isTyping]);
 
   const handleSend = async (text?: string) => {
     const content = text || inputValue.trim();
@@ -100,45 +106,45 @@ export default function AICopilot({ projectId, onClose, expanded = false }: AICo
     setIsTyping(true);
 
     try {
+      // Create conversation if needed
       if (!conversationId) {
         const convId = await createConversation({ projectId, title: content.slice(0, 50) });
         setConversationId(convId);
       }
-      setTimeout(() => {
-        let response = "";
-        const q = content.toLowerCase();
-        if (projectId && projectData) {
-          if (q.includes("progress") || q.includes("status") || q.includes("stage")) {
-            response = `**${projectData.project.name}** is at **${projectData.stage}** with ${projectData.stats.completionRate}% completion. ${projectData.stats.done} tasks done, ${projectData.stats.inProgress} in progress, ${projectData.stats.backlog} in backlog.`;
-          } else if (q.includes("risk") || q.includes("block")) {
-            response = projectData.stats.highRisk > 0
-              ? `⚠️ **${projectData.stats.highRisk} high-risk task${projectData.stats.highRisk > 1 ? "s" : ""}** detected. ${projectData.stats.overdue > 0 ? `${projectData.stats.overdue} overdue.` : "No overdue tasks."}`
-              : "✅ No high-risk tasks detected. Your project is healthy!";
-          } else if (q.includes("suggest") || q.includes("improve")) {
-            const items = projectData.insights.filter((i) => i.type === "suggestion");
-            response = items.length > 0
-              ? `Here are my recommendations:\n\n${items.map((s, i) => `${i + 1}. **${s.title}** — ${s.detail}`).join("\n\n")}`
-              : "Your project is on track! Keep up the great work.";
-          } else {
-            response = `📊 **${projectData.project.name}** Overview:\n• Stage: ${projectData.stage}\n• Health: ${projectData.project.healthScore}%\n• Completion: ${projectData.stats.completionRate}%\n• Tasks: ${projectData.stats.done}/${projectData.stats.total} done`;
-          }
-        } else if (globalData) {
-          if (q.includes("progress") || q.includes("status")) {
-            response = `Portfolio: **${globalData.totalProjects} projects**, **${globalData.totalTasks} tasks** total, ${globalData.globalCompletion}% completion.`;
-          } else if (q.includes("risk")) {
-            response = globalData.totalRisk > 0
-              ? `⚠️ ${globalData.totalRisk} high-risk task${globalData.totalRisk > 1 ? "s" : ""} across your portfolio.`
-              : "✅ No high-risk tasks in your portfolio.";
-          } else {
-            response = "Select a project from the dashboard to get project-specific insights!";
-          }
-        } else {
-          response = "I'm loading your data... Ask me about project progress, risks, or suggestions!";
+
+      // Send message to backend — the Convex mutation generates a real context-aware response
+      const targetConvId = conversationId;
+      if (targetConvId) {
+        const updatedMessages = await sendMessageMutation({
+          conversationId: targetConvId,
+          content,
+        });
+
+        // The backend returns the full message history with the new response
+        if (updatedMessages && updatedMessages.length > 0) {
+          const assistantMsg = updatedMessages[updatedMessages.length - 1];
+          setMessages((prev) => [...prev, { role: assistantMsg.role, content: assistantMsg.content }]);
         }
-        setMessages((prev) => [...prev, { role: "assistant", content: response }]);
-        setIsTyping(false);
-      }, 600);
-    } catch {
+      } else {
+        // Fallback: create conversation and send in one go
+        const convId = await createConversation({ projectId, title: content.slice(0, 50) });
+        setConversationId(convId);
+        const updatedMessages = await sendMessageMutation({
+          conversationId: convId,
+          content,
+        });
+        if (updatedMessages && updatedMessages.length > 0) {
+          const assistantMsg = updatedMessages[updatedMessages.length - 1];
+          setMessages((prev) => [...prev, { role: assistantMsg.role, content: assistantMsg.content }]);
+        }
+      }
+    } catch (err) {
+      console.error("AI Copilot error:", err);
+      setMessages((prev) => [
+        ...prev,
+        { role: "assistant", content: "I encountered an error processing your request. Please try again." },
+      ]);
+    } finally {
       setIsTyping(false);
     }
   };
@@ -271,7 +277,7 @@ export default function AICopilot({ projectId, onClose, expanded = false }: AICo
         {chatOpen && (
           <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.3 }} className="overflow-hidden">
             <div className="border-t border-[rgba(255,255,255,0.04)]">
-              <div className="px-5 py-3 max-h-64 overflow-y-auto scrollbar-hide">
+              <div className="px-5 py-3 max-h-72 overflow-y-auto scrollbar-hide">
                 {messages.length === 0 && (
                   <div className="py-4">
                     <p className="text-xs text-[rgba(232,245,238,0.25)] text-center mb-4">Ask me anything about your project</p>
@@ -290,7 +296,10 @@ export default function AICopilot({ projectId, onClose, expanded = false }: AICo
                       msg.role === "user" ? "bg-[#0E9F6E] text-white rounded-br-sm" : "bg-[rgba(255,255,255,0.03)] text-[#E8F5EE] rounded-bl-sm border border-[rgba(255,255,255,0.04)]"
                     }`}>
                       {msg.content.split("\n").map((line, j) => (
-                        <span key={j}>{line}{j < msg.content.split("\n").length - 1 && <br />}</span>
+                        <span key={j}>
+                          {line.startsWith("**") && line.endsWith("**") ? <strong>{line.replace(/\*\*/g, "")}</strong> : line}
+                          {j < msg.content.split("\n").length - 1 && <br />}
+                        </span>
                       ))}
                     </div>
                   </motion.div>
@@ -310,7 +319,7 @@ export default function AICopilot({ projectId, onClose, expanded = false }: AICo
                     onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
                     placeholder="Ask about your project..."
                     className="flex-1 bg-transparent text-xs text-[#E8F5EE] placeholder:text-[rgba(232,245,238,0.2)] border-none outline-none" />
-                  <button onClick={() => handleSend()} disabled={!inputValue.trim()}
+                  <button onClick={() => handleSend()} disabled={!inputValue.trim() || isTyping}
                     className="w-7 h-7 rounded-lg bg-[#0E9F6E] flex items-center justify-center hover:bg-[#18C37E] transition-colors disabled:opacity-30">
                     <Send className="w-3 h-3 text-white" />
                   </button>

@@ -10,20 +10,27 @@ function CyclingWord() {
   useEffect(() => {
     const interval = setInterval(() => {
       setIndex((prev) => (prev + 1) % words.length);
-    }, 2000);
+    }, 2400);
     return () => clearInterval(interval);
   }, []);
 
   return (
-    <span className="inline-block relative h-[1.1em] w-[5.5em] overflow-hidden align-bottom">
-      <AnimatePresence mode="wait">
+    <span
+      className="inline-flex items-baseline relative overflow-hidden"
+      style={{ height: "1.15em", minWidth: "6em", verticalAlign: "baseline" }}
+    >
+      <AnimatePresence mode="popLayout">
         <motion.span
           key={words[index]}
-          initial={{ y: 40, opacity: 0, filter: "blur(8px)" }}
-          animate={{ y: 0, opacity: 1, filter: "blur(0px)" }}
-          exit={{ y: -40, opacity: 0, filter: "blur(8px)" }}
-          transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
-          className="absolute left-0 text-gradient-green"
+          initial={{ y: "100%", opacity: 0, filter: "blur(8px)" }}
+          animate={{ y: "0%", opacity: 1, filter: "blur(0px)" }}
+          exit={{ y: "-100%", opacity: 0, filter: "blur(8px)" }}
+          transition={{
+            y: { duration: 0.5, ease: [0.16, 1, 0.3, 1] },
+            opacity: { duration: 0.35 },
+            filter: { duration: 0.4 },
+          }}
+          className="text-gradient-green absolute bottom-0 left-0 whitespace-nowrap"
         >
           {words[index]}
         </motion.span>
@@ -91,9 +98,9 @@ export default function Hero() {
           </span>
         </motion.div>
 
-        {/* Hero heading with cycling words */}
-        <h1 className="text-5xl sm:text-6xl md:text-7xl lg:text-8xl font-bold tracking-tight leading-[1.05] mb-6">
-          <span className="text-[#E8F5EE]">You </span>
+        {/* Hero heading with cycling words — properly aligned */}
+        <h1 className="text-5xl sm:text-6xl md:text-7xl lg:text-8xl font-bold tracking-tight mb-6 leading-tight">
+          <span className="text-[#E8F5EE]">You&nbsp;</span>
           <CyclingWord />
         </h1>
 

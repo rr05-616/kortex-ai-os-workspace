@@ -3,10 +3,9 @@ import { useEffect } from "react";
 import Navbar from "@/components/landing/Navbar";
 import Hero from "@/components/landing/Hero";
 import Features from "@/components/landing/Features";
+import HowItWorks from "@/components/landing/HowItWorks";
 import Showcase from "@/components/landing/Showcase";
 import Integrations from "@/components/landing/Integrations";
-import Testimonials from "@/components/landing/Testimonials";
-import Pricing from "@/components/landing/Pricing";
 import Footer from "@/components/landing/Footer";
 
 export default function Landing() {
@@ -34,10 +33,9 @@ export default function Landing() {
         <Navbar />
         <Hero />
         <Features />
+        <HowItWorks />
         <Showcase />
         <Integrations />
-        <Testimonials />
-        <Pricing />
         <Footer />
       </div>
     </motion.div>
