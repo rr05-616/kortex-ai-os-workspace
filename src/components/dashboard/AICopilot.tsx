@@ -6,7 +6,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Sparkles, X, Bot, CheckCircle2, Search, Brain,
   Database, Activity, AlertTriangle, Lightbulb, TrendingUp,
-  Clock, Target, Zap, Loader2, MessageSquare,
+  Clock, Target, Zap, Loader2,
   ArrowUp, Globe, GitBranch, BarChart3,
 } from "lucide-react";
 
@@ -369,13 +369,14 @@ export function AICopilot({ projectId, onClose, expanded }: AICopilotProps) {
     setShowInsights(false);
 
     try {
-      // Ensure conversation exists
-      if (!conversationId) {
-        const id = await createConversation({
+      // Ensure conversation exists — use the local ID directly
+      let activeConversationId = conversationId;
+      if (!activeConversationId) {
+        activeConversationId = await createConversation({
           projectId,
           title: projectId && projectData ? projectData.project.name : "Global Chat",
         });
-        setConversationId(id);
+        setConversationId(activeConversationId);
       }
 
       // Simulate reasoning steps
@@ -389,7 +390,7 @@ export function AICopilot({ projectId, onClose, expanded }: AICopilotProps) {
 
       // Send message and get context
       const result = await sendMessageMutation({
-        conversationId: conversationId!,
+        conversationId: activeConversationId,
         content: text,
       });
 
@@ -403,7 +404,7 @@ export function AICopilot({ projectId, onClose, expanded }: AICopilotProps) {
 
       // Save assistant response
       const updatedMessages = await saveAssistantResponse({
-        conversationId: conversationId!,
+        conversationId: activeConversationId,
         content: response,
       });
 

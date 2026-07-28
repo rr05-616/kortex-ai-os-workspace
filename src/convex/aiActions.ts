@@ -184,7 +184,6 @@ function detectFollowUp(
 
   // Extract key topics from the last assistant response
   const prevContent = lastAssistant.content;
-  const prevLower = prevContent.toLowerCase();
 
   // Strong follow-up patterns (always resolve)
   const strongFollowUps: Array<{ patterns: string[]; resolver: () => string }> = [
@@ -333,15 +332,6 @@ function analyzeWorkspace(ctx: ContextData, intent: Intent): ReasoningResult {
   const inProgressTasks = ctx.tasks.filter(t => t.status === "in_progress");
   const readyTasks = ctx.tasks.filter(t => t.status === "todo" || t.status === "backlog");
 
-  // Analyze completion velocity
-  const completionVelocity = ctx.totalDone > 0 ? ctx.totalDone / Math.max(ctx.totalTasks, 1) : 0;
-  
-  // Analyze risk distribution
-  const riskDistribution = {
-    high: ctx.tasks.filter(t => (t.aiRiskScore ?? 0) > 0.7).length,
-    medium: ctx.tasks.filter(t => (t.aiRiskScore ?? 0) > 0.4 && (t.aiRiskScore ?? 0) <= 0.7).length,
-    low: ctx.tasks.filter(t => (t.aiRiskScore ?? 0) <= 0.4).length,
-  };
 
   // Intent-specific reasoning
   switch (intent) {
