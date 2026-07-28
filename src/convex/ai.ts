@@ -58,7 +58,7 @@ export const getProjectInsights = query({
       insights.push({
         type: "warning",
         title: `${highRisk} High-Risk Task${highRisk > 1 ? "s" : ""} Detected`,
-        detail: `${highRisk} task${highRisk > 1 ? "s have" : " has"} been flagged as high risk. Review these tasks and consider adding more time or resources.`,
+        detail: `${highRisk} task${highRisk > 1 ? "s have" : " has"} been flagged as high risk.`,
         icon: "warning",
       });
     }
@@ -67,17 +67,8 @@ export const getProjectInsights = query({
       insights.push({
         type: "warning",
         title: `${overdue} Overdue Task${overdue > 1 ? "s" : ""}`,
-        detail: `${overdue} task${overdue > 1 ? "s are" : " is"} past the due date. Consider rescheduling or reprioritizing.`,
+        detail: `${overdue} task${overdue > 1 ? "s are" : " is"} past the due date.`,
         icon: "clock",
-      });
-    }
-
-    if (review > inProgress && review > 0) {
-      insights.push({
-        type: "warning",
-        title: "Review Bottleneck",
-        detail: `${review} tasks waiting for review but only ${inProgress} in progress. Consider reviewing pending items.`,
-        icon: "bottleneck",
       });
     }
 
@@ -85,7 +76,7 @@ export const getProjectInsights = query({
       insights.push({
         type: "suggestion",
         title: "Kickstart Development",
-        detail: "Move tasks from backlog to 'In Progress' to start building momentum. Start with high-priority items.",
+        detail: "Move tasks from backlog to 'In Progress' to start building momentum.",
         icon: "rocket",
       });
     }
@@ -94,7 +85,7 @@ export const getProjectInsights = query({
       insights.push({
         type: "suggestion",
         title: "Backlog Cleanup",
-        detail: `${backlog} of ${total} tasks are in backlog (${Math.round((backlog / total) * 100)}%). Consider reviewing and prioritizing to keep the backlog manageable.`,
+        detail: `${backlog} of ${total} tasks are in backlog. Consider reviewing and prioritizing.`,
         icon: "list",
       });
     }
@@ -104,7 +95,7 @@ export const getProjectInsights = query({
       insights.push({
         type: "suggestion",
         title: `${remaining} Task${remaining !== 1 ? "s" : ""} Remaining`,
-        detail: `At current pace, focus on completing ${inProgress > 0 ? inProgress : "the next"} task${inProgress !== 1 ? "s" : ""} to maintain velocity.`,
+        detail: `Focus on completing ${inProgress > 0 ? inProgress : "the next"} task${inProgress !== 1 ? "s" : ""} to maintain velocity.`,
         icon: "chart",
       });
     }
@@ -199,7 +190,7 @@ export const getGlobalInsights = query({
         insights.push({
           type: "suggestion",
           title: "Start Working",
-          detail: `You have ${activeProjects} active project${activeProjects !== 1 ? "s" : ""} but no tasks in progress. Move tasks to start building.`,
+          detail: `You have ${activeProjects} active project${activeProjects !== 1 ? "s" : ""} but no tasks in progress.`,
         });
       }
     }
@@ -240,9 +231,211 @@ export const createConversation = mutation({
   },
 });
 
-/** Helper to build a newline-separated string */
-function nl(...lines: string[]): string {
-  return lines.join("\n");
+// ─── SMART CONVERSATIONAL RESPONSES ──────────────────────────────────────────
+
+/** Greeting patterns */
+const greetings = ["hello", "hi", "hey", "good morning", "good afternoon", "good evening", "what's up", "sup", "yo", "howdy", "greetings"];
+
+/** Detect the intent of the user's message */
+function detectIntent(q: string): string {
+  if (greetings.some((g) => q.startsWith(g) || q === g)) return "greeting";
+  if (q.match(/^(who|what) are you|your name|tell me about yourself/)) return "identity";
+  if (q.match(/help|what can you do|capabilities|features|commands/)) return "help";
+  if (q.match(/progress|status|stage|how.*going|how.*project|completion/)) return "progress";
+  if (q.match(/risk|block|issue|problem|stuck|danger|warning/)) return "risk";
+  if (q.match(/suggest|recommend|improve|better|advice|tip|optimize/)) return "suggest";
+  if (q.match(/sprint|plan|roadmap|backlog|milestone|release/)) return "sprint";
+  if (q.match(/task|todo|create|add|make|new/)) return "task";
+  if (q.match(/team|member|collaborat|assign|workload/)) return "team";
+  if (q.match(/thank|thanks|thx|appreciate/)) return "thanks";
+  if (q.match(/bye|goodbye|see you|later|exit/)) return "farewell";
+  return "general";
+}
+
+/** Smart rule-based response generator that feels conversational */
+function generateSmartResponse(
+  intent: string,
+  q: string,
+  context: {
+    projectName?: string;
+    totalProjects: number;
+    totalTasks: number;
+    totalDone: number;
+    totalInProgress: number;
+    totalRisk: number;
+    completionRate: number;
+    tasks: Array<{ title: string; status: string; priority: string }>;
+  }
+): string {
+  switch (intent) {
+    case "greeting": {
+      if (context.projectName) {
+        return `Hey! 👋 I'm your AI copilot for **${context.projectName}**. ${context.totalTasks > 0 ? `Your project is at ${context.completionRate}% completion with ${context.totalTasks} tasks.` : "This project doesn't have any tasks yet — let's get started!"} What would you like to work on?`;
+      }
+      if (context.totalProjects > 0) {
+        return `Hey there! 👋 Welcome back to KORTEX AI. You have **${context.totalProjects} project${context.totalProjects !== 1 ? "s" : ""}** with **${context.totalTasks} task${context.totalTasks !== 1 ? "s" : ""}** overall. ${context.totalInProgress > 0 ? `${context.totalInProgress} task${context.totalInProgress !== 1 ? "s are" : " is"} in progress.` : "No tasks in progress right now."} What can I help you with?`;
+      }
+      return "Hey there! 👋 I'm **KORTEX AI**, your intelligent project management copilot. I can help you with project planning, task management, risk analysis, sprint planning, and more. What would you like to do?";
+    }
+
+    case "identity":
+      return "I'm **KORTEX AI** — your intelligent project management copilot. I'm designed to help software teams plan, execute, and deliver projects faster. I can:\n\n• Analyze your project health and progress\n• Detect risks and blockers early\n• Help plan sprints and prioritize tasks\n• Answer questions about project management and software development\n• Provide suggestions to improve your workflow\n\nWhat would you like to work on?";
+
+    case "help": {
+      const lines = [
+        "Here's what I can help you with:",
+        "",
+        "**📊 Project Management**",
+        "• \"What's the project progress?\" — Get a status overview",
+        "• \"What are the risks?\" — Find blockers and issues",
+        "• \"How can I improve?\" — Get actionable suggestions",
+        "",
+        "**🏃 Sprint Planning**",
+        "• \"Help me plan a sprint\" — Sprint recommendations",
+        "• \"What should we work on next?\" — Priority suggestions",
+        "",
+        "**💬 General Questions**",
+        "• Ask me anything about software development, best practices, architecture, or productivity!",
+        "",
+        "Just type naturally — I'll understand what you need. 😊",
+      ];
+      return lines.join("\n");
+    }
+
+    case "progress": {
+      if (context.totalTasks === 0) {
+        return context.projectName
+          ? `**${context.projectName}** doesn't have any tasks yet. Create some tasks from the project dashboard and I'll start tracking your progress!`
+          : `You don't have any tasks across your ${context.totalProjects} project${context.totalProjects !== 1 ? "s" : ""} yet. Create a project and add some tasks to get started!`;
+      }
+      if (context.projectName) {
+        const lines = [
+          `**${context.projectName}** is at **${context.completionRate}% completion**.`,
+          "",
+          `• **${context.totalDone}** tasks completed`,
+          `• **${context.totalInProgress}** tasks in progress`,
+          `• **${context.totalTasks - context.totalDone - context.totalInProgress}** tasks remaining`,
+        ];
+        if (context.totalRisk > 0) lines.push(`• ⚠️ **${context.totalRisk}** high-risk task${context.totalRisk > 1 ? "s" : ""}`);
+        return lines.join("\n");
+      }
+      const lines = [
+        `Here's your workspace overview:`,
+        "",
+        `• **${context.totalTasks}** total tasks across ${context.totalProjects} project${context.totalProjects !== 1 ? "s" : ""}`,
+        `• **${context.totalDone}** completed (${context.completionRate}%)`,
+        `• **${context.totalInProgress}** in progress`,
+      ];
+      if (context.totalRisk > 0) lines.push(`• ⚠️ **${context.totalRisk}** at risk`);
+      return lines.join("\n");
+    }
+
+    case "risk": {
+      if (context.totalRisk === 0) {
+        return "✅ **All clear!** No high-risk tasks detected in your workspace. Everything looks healthy! Keep monitoring your tasks and deadlines to maintain this status.";
+      }
+      const riskyTasks = context.tasks.filter((t) => t.priority === "high" || t.priority === "critical");
+      const lines = [
+        `⚠️ I've identified **${context.totalRisk} high-risk area${context.totalRisk > 1 ? "s" : ""}** in your workspace.`,
+        "",
+        "Here's what needs attention:",
+      ];
+      riskyTasks.slice(0, 5).forEach((t) => {
+        lines.push(`• **"${t.title}"** — priority: ${t.priority}, status: ${t.status.replace("_", " ")}`);
+      });
+      lines.push("", "💡 **My recommendation:** Review these tasks, consider breaking them into smaller pieces, or add more buffer time to your estimates.");
+      return lines.join("\n");
+    }
+
+    case "suggest": {
+      const suggestions: string[] = [];
+      if (context.totalTasks === 0) {
+        suggestions.push("Create your first project and add tasks to start tracking progress.");
+        suggestions.push("Define clear goals and milestones for your project.");
+      } else {
+        if (context.totalInProgress === 0 && context.totalTasks > 0) {
+          suggestions.push("Move tasks to 'In Progress' to build momentum.");
+        }
+        if (context.completionRate > 80) {
+          suggestions.push("Great progress! Consider starting a new sprint or project.");
+          suggestions.push("Document what went well for future reference.");
+        }
+        if (context.completionRate < 30 && context.totalTasks > 5) {
+          suggestions.push("Break large tasks into smaller, more manageable subtasks.");
+        }
+        if (context.totalRisk > 0) {
+          suggestions.push(`Address the ${context.totalRisk} high-risk task${context.totalRisk > 1 ? "s" : ""} before they become blockers.`);
+        }
+        if (context.totalInProgress > 3) {
+          suggestions.push("You have many tasks in progress — consider focusing on completing current work before starting new items.");
+        }
+        if (suggestions.length === 0) {
+          suggestions.push("Your workflow looks solid! Keep up the great work.");
+          suggestions.push("Consider setting up sprint goals if you haven't already.");
+        }
+      }
+      return `**My Recommendations:**\n\n${suggestions.map((s, i) => `${i + 1}. ${s}`).join("\n")}`;
+    }
+
+    case "sprint": {
+      const readyTasks = context.tasks.filter((t) => t.status === "backlog" || t.status === "todo");
+      const inProgress = context.tasks.filter((t) => t.status === "in_progress");
+      const lines = [
+        "**Sprint Planning Guide:**",
+        "",
+        `You have **${readyTasks.length} task${readyTasks.length !== 1 ? "s" : ""}** ready to pick up and **${inProgress.length} in progress**.`,
+        "",
+        "**Here's my recommended approach:**",
+        "1. **Review** — Check the ${readyTasks.length} pending tasks and prioritize by importance",
+        "2. **Scope** — Aim for 3-5 key deliverables per sprint",
+        "3. **Balance** — Mix quick wins with larger features",
+        "4. **Buffer** — Leave room for unexpected issues (20% buffer is ideal)",
+        "5. **Commit** — Set clear sprint goals and stick to them",
+      ];
+      if (readyTasks.length > 0) {
+        lines.push("", "**Top candidates for the next sprint:**");
+        readyTasks.slice(0, 5).forEach((t) => {
+          lines.push(`• "${t.title}" [${t.priority}]`);
+        });
+      }
+      return lines.join("\n");
+    }
+
+    case "team":
+      return "**Team Collaboration Tips:**\n\n• Assign tasks based on team members' strengths and availability\n• Keep work-in-progress limits to avoid burnout\n• Use the comments feature on tasks for async communication\n• Regular standups help catch blockers early\n• Consider pairing on high-risk or complex tasks";
+
+    case "task": {
+      const lines = ["Here's a quick overview of your tasks:"];
+      const statusCounts: Record<string, number> = {};
+      context.tasks.forEach((t) => {
+        statusCounts[t.status] = (statusCounts[t.status] || 0) + 1;
+      });
+      Object.entries(statusCounts).forEach(([status, count]) => {
+        lines.push(`• **${status.replace("_", " ")}**: ${count}`);
+      });
+      if (context.totalTasks === 0) {
+        lines.push("", "No tasks yet! Create your first task from the project dashboard.");
+      } else {
+        lines.push("", `**Total: ${context.totalTasks} tasks** — ${context.completionRate}% complete`);
+      }
+      return lines.join("\n");
+    }
+
+    case "thanks":
+      return "You're welcome! 😊 I'm here whenever you need help. Just ask me anything about your project, sprint planning, or anything else!";
+
+    case "farewell":
+      return "See you later! 👋 Good luck with your projects. I'll be here when you need me!";
+
+    case "general":
+    default: {
+      // For general questions, give a helpful contextual response
+      if (context.totalProjects > 0) {
+        return `Great question! As your project management copilot, I can help with both **project-specific tasks** and **general questions**.\n\n${context.projectName ? `For your project **${context.projectName}** (${context.completionRate}% complete), ` : ""}try asking me about:\n\n• Project progress and status\n• Risk analysis and blockers\n• Sprint planning\n• Task prioritization\n\nOr ask me anything about software development, best practices, or productivity! I'm here to help. 😊`;
+      }
+      return "I'm here to help! You can ask me about:\n\n• **Project management** — planning, tracking, and delivery\n• **Software development** — architecture, best practices, and debugging\n• **Productivity** — tips, techniques, and workflows\n\nWhat would you like to know?";
+    }
+  }
 }
 
 /** Send a message and get a response */
@@ -267,213 +460,60 @@ export const sendMessage = mutation({
       { role: "user" as const, content: args.content, timestamp: now },
     ];
 
-    let response = "";
     const q = args.content.toLowerCase();
 
+    // Gather context for smart responses
+    let context = {
+      projectName: undefined as string | undefined,
+      totalProjects: 0,
+      totalTasks: 0,
+      totalDone: 0,
+      totalInProgress: 0,
+      totalRisk: 0,
+      completionRate: 0,
+      tasks: [] as Array<{ title: string; status: string; priority: string }>,
+    };
+
     if (conversation.projectId) {
-      // ── PROJECT-SCOPED RESPONSES ──────────────────────────────────────
       const project = await ctx.db.get(conversation.projectId);
+      if (project) context.projectName = project.name;
+
       const tasks = await ctx.db
         .query("tasks")
         .withIndex("by_project", (r) => r.eq("projectId", conversation.projectId!))
         .collect();
 
-      const total = tasks.length;
-      const done = tasks.filter((t) => t.status === "done").length;
-      const inProgress = tasks.filter((t) => t.status === "in_progress").length;
-      const completionRate = total > 0 ? Math.round((done / total) * 100) : 0;
-
-      if (q.includes("progress") || q.includes("status") || q.includes("stage")) {
-        response = nl(
-          `**${project?.name ?? "Project"}** is at **${completionRate}% completion**.`,
-          "",
-          `• ${done} completed tasks`,
-          `• ${inProgress} in progress`,
-          `• ${total - done - inProgress} remaining`,
-          "",
-          completionRate >= 80 ? "The project is wrapping up nicely!" :
-          completionRate >= 40 ? "Good momentum — keep pushing!" :
-          "There's still work ahead, stay focused.",
-        );
-      } else if (q.includes("risk") || q.includes("block") || q.includes("issue")) {
-        const highRisk = tasks.filter((t) => (t.aiRiskScore ?? 0) > 0.7);
-        if (highRisk.length > 0) {
-          const taskList = highRisk.map((t) => `• "${t.title}"`).join("\n");
-          response = nl(
-            `I've identified **${highRisk.length} high-risk task${highRisk.length > 1 ? "s" : ""}**:`,
-            "",
-            taskList,
-            "",
-            "I recommend reviewing these tasks, adding buffer time, or breaking them into smaller pieces.",
-          );
-        } else {
-          response = "Your project looks healthy! No high-risk tasks detected. All tasks are progressing well. Keep monitoring dependencies and deadlines.";
-        }
-      } else if (q.includes("suggest") || q.includes("recommend") || q.includes("improve")) {
-        const suggestions: string[] = [];
-        if (inProgress === 0) suggestions.push("Move some tasks from backlog/todo to 'In Progress' to start building momentum.");
-        if (tasks.length < 3) suggestions.push("Consider breaking down your project into more specific tasks for better tracking.");
-        if (completionRate > 80) suggestions.push("The project is nearly done — start planning the next sprint or project.");
-        if (suggestions.length === 0) suggestions.push("Keep up the great work! Consider setting up sprint goals if you haven't already.");
-        response = nl("Here are my recommendations:", "", ...suggestions.map((s, i) => `${i + 1}. ${s}`));
-      } else if (q.includes("sprint") || q.includes("plan")) {
-        response = nl(
-          "For sprint planning, I recommend:",
-          "",
-          "1. **Review backlog** — Prioritize the remaining " + (total - done) + " tasks",
-          "2. **Set goals** — Aim for 3-5 key deliverables",
-          "3. **Assign work** — Distribute tasks based on team capacity",
-          "4. **Set timeline** — Your sprint duration is " + (project?.sprintDuration ?? 14) + " days",
-        );
-      } else {
-        response = nl(
-          "I can help you with:",
-          "",
-          '• **Project status** — "What\'s the progress?"',
-          '• **Risk analysis** — "What are the risks?"',
-          '• **Suggestions** — "How can I improve?"',
-          '• **Sprint planning** — "Help me plan a sprint"',
-          "",
-          "Try asking about any of these topics!",
-        );
-      }
+      context.tasks = tasks.map((t) => ({ title: t.title, status: t.status, priority: t.priority }));
+      context.totalTasks = tasks.length;
+      context.totalDone = tasks.filter((t) => t.status === "done").length;
+      context.totalInProgress = tasks.filter((t) => t.status === "in_progress").length;
+      context.totalRisk = tasks.filter((t) => (t.aiRiskScore ?? 0) > 0.7).length;
+      context.completionRate = context.totalTasks > 0 ? Math.round((context.totalDone / context.totalTasks) * 100) : 0;
+      context.totalProjects = 1;
     } else {
-      // ── GLOBAL / NO-PROJECT RESPONSES ─────────────────────────────────
-      const allProjects = await ctx.db
+      const projects = await ctx.db
         .query("projects")
         .withIndex("by_owner", (r) => r.eq("ownerId", user._id))
         .collect();
+      context.totalProjects = projects.length;
 
-      let allTasks: Array<{ projectId: string; status: string; aiRiskScore?: number; dueDate?: number; title: string }> = [];
-      for (const p of allProjects) {
-        const projTasks = await ctx.db
+      for (const p of projects) {
+        const tasks = await ctx.db
           .query("tasks")
           .withIndex("by_project", (r) => r.eq("projectId", p._id))
           .collect();
-        allTasks = allTasks.concat(projTasks);
+        context.totalTasks += tasks.length;
+        context.totalDone += tasks.filter((t) => t.status === "done").length;
+        context.totalInProgress += tasks.filter((t) => t.status === "in_progress").length;
+        context.totalRisk += tasks.filter((t) => (t.aiRiskScore ?? 0) > 0.7).length;
+        context.tasks = context.tasks.concat(tasks.map((t) => ({ title: t.title, status: t.status, priority: t.priority })));
       }
-
-      const totalProjects = allProjects.length;
-      const totalTasks = allTasks.length;
-      const totalDone = allTasks.filter((t) => t.status === "done").length;
-      const totalInProgress = allTasks.filter((t) => t.status === "in_progress").length;
-      const totalRisk = allTasks.filter((t) => (t.aiRiskScore ?? 0) > 0.7).length;
-      const totalOverdue = allTasks.filter((t) => t.dueDate && t.dueDate < Date.now() && t.status !== "done").length;
-      const globalCompletion = totalTasks > 0 ? Math.round((totalDone / totalTasks) * 100) : 0;
-
-      if (q.includes("progress") || q.includes("status") || q.includes("overview") || q.includes("summary")) {
-        if (totalProjects === 0) {
-          response = "You don't have any projects yet. Create your first project from the Dashboard to get started!";
-        } else {
-          const projectLines = allProjects.map((p) => {
-            const projTasks = allTasks.filter((t) => t.projectId === p._id);
-            const d = projTasks.filter((t) => t.status === "done").length;
-            const t = projTasks.length;
-            const pct = t > 0 ? Math.round((d / t) * 100) : 0;
-            return `• **${p.name}** — ${p.status}, ${pct}% complete (${d}/${t} tasks)`;
-          });
-          response = nl(
-            "**Your Portfolio Overview**",
-            "",
-            `You have **${totalProjects} project${totalProjects !== 1 ? "s" : ""}** with **${totalTasks} total task${totalTasks !== 1 ? "s" : ""}** and **${globalCompletion}% completion**.`,
-            "",
-            ...projectLines,
-          );
-        }
-      } else if (q.includes("risk") || q.includes("block") || q.includes("issue") || q.includes("problem")) {
-        if (totalRisk === 0 && totalOverdue === 0) {
-          response = "✅ **All clear!** No high-risk or overdue tasks across your portfolio. Everything is on track.";
-        } else {
-          const riskLines: string[] = [];
-          if (totalRisk > 0) riskLines.push(`**${totalRisk} high-risk task${totalRisk > 1 ? "s" : ""}** need attention.`);
-          if (totalOverdue > 0) riskLines.push(`**${totalOverdue} overdue task${totalOverdue > 1 ? "s" : ""}** past their deadline.`);
-          const atRisk = allTasks.filter((t) => (t.aiRiskScore ?? 0) > 0.7 || (t.dueDate && t.dueDate < Date.now() && t.status !== "done"));
-          if (atRisk.length > 0) {
-            riskLines.push("", "**Tasks needing attention:**");
-            atRisk.slice(0, 5).forEach((t) => {
-              const reasons: string[] = [];
-              if ((t.aiRiskScore ?? 0) > 0.7) reasons.push("high risk");
-              if (t.dueDate && t.dueDate < Date.now() && t.status !== "done") reasons.push("overdue");
-              riskLines.push(`• "${t.title}" — ${reasons.join(", ")}`);
-            });
-          }
-          response = nl(
-            "⚠️ **Risk Report**",
-            "",
-            ...riskLines,
-            "",
-            "I recommend prioritizing these tasks and considering adding buffer time or additional resources.",
-          );
-        }
-      } else if (q.includes("suggest") || q.includes("recommend") || q.includes("improve") || q.includes("better")) {
-        const suggestions: string[] = [];
-        if (totalProjects === 0) {
-          suggestions.push("Create your first project to start tracking progress.");
-        } else {
-          if (totalTasks === 0) suggestions.push("Add tasks to your projects for better tracking and AI analysis.");
-          if (totalInProgress === 0 && totalTasks > 0) suggestions.push("Move tasks to 'In Progress' to build momentum.");
-          if (globalCompletion > 80) suggestions.push("Great progress! Consider starting a new sprint or project.");
-          if (globalCompletion < 30 && totalTasks > 5) suggestions.push("Break large tasks into smaller subtasks for better visibility.");
-          if (totalRisk > 0) suggestions.push(`Address the ${totalRisk} high-risk task${totalRisk > 1 ? "s" : ""} before they become blockers.`);
-          if (suggestions.length === 0) suggestions.push("Keep up the great work! Your portfolio is healthy.");
-        }
-        response = nl("**My Recommendations**", "", ...suggestions.map((s, i) => `${i + 1}. ${s}`));
-      } else if (q.includes("sprint") || q.includes("plan")) {
-        const activeTasks = allTasks.filter((t) => t.status === "in_progress" || t.status === "todo" || t.status === "backlog");
-        response = nl(
-          "**Sprint Planning Overview**",
-          "",
-          `You have **${activeTasks.length} task${activeTasks.length !== 1 ? "s" : ""}** ready for sprint planning across **${totalProjects} project${totalProjects !== 1 ? "s" : ""}**.`,
-          "",
-          "To plan an effective sprint:",
-          "1. **Prioritize** — Focus on high-priority items first",
-          "2. **Estimate** — Consider effort and dependencies",
-          "3. **Scope** — Don't overcommit — aim for achievable goals",
-          "4. **Review** — Select a project to start sprint planning there",
-        );
-      } else if (q.includes("task") || q.includes("what") || q.includes("help")) {
-        if (totalProjects === 0) {
-          response = nl(
-            "I'm KORTEX AI Copilot! I can help you with:",
-            "",
-            "• **Portfolio overview** — See all your projects and progress",
-            "• **Risk detection** — Identify blockers and overdue tasks",
-            "• **Suggestions** — Get recommendations to improve your workflow",
-            "• **Sprint planning** — Help plan and structure sprints",
-            "",
-            "**Create a project first**, then I can provide detailed analysis!",
-          );
-        } else {
-          const pendingTasks = totalTasks - totalDone;
-          const lines = [
-            "Here's what I know about your workspace:",
-            "",
-            `• **${totalProjects}** project${totalProjects !== 1 ? "s" : ""} active`,
-            `• **${totalTasks}** total task${totalTasks !== 1 ? "s" : ""} (${totalDone} done, ${pendingTasks} remaining)`,
-            `• **${globalCompletion}%** completion rate`,
-          ];
-          if (totalInProgress > 0) {
-            lines.push(`• **${totalInProgress}** task${totalInProgress !== 1 ? "s" : ""} currently in progress`);
-          }
-          lines.push("", "Ask me about **progress**, **risks**, **suggestions**, or **sprint planning** for deeper analysis!");
-          response = nl(...lines);
-        }
-      } else {
-        if (totalProjects > 0) {
-          const lines = [
-            "**Your Workspace Summary**",
-            "",
-            `${totalProjects} project${totalProjects !== 1 ? "s" : ""}, ${totalTasks} task${totalTasks !== 1 ? "s" : ""}, ${globalCompletion}% completion.`,
-          ];
-          if (totalInProgress > 0) lines.push(`${totalInProgress} task${totalInProgress !== 1 ? "s" : ""} in progress.`);
-          if (totalRisk > 0) lines.push(`⚠️ ${totalRisk} high-risk task${totalRisk > 1 ? "s" : ""} flagged.`);
-          lines.push("", "Try asking about **progress**, **risks**, **suggestions**, or **sprint planning**!");
-          response = nl(...lines);
-        } else {
-          response = "I can provide insights on your projects. **Create a project from the Dashboard** to get started with AI-powered analysis!";
-        }
-      }
+      context.completionRate = context.totalTasks > 0 ? Math.round((context.totalDone / context.totalTasks) * 100) : 0;
     }
+
+    // Detect intent and generate smart response
+    const intent = detectIntent(q);
+    const response = generateSmartResponse(intent, q, context);
 
     messages.push({ role: "assistant" as const, content: response, timestamp: Date.now() });
 

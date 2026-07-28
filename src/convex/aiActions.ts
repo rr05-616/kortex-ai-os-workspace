@@ -23,44 +23,58 @@ function buildSystemPrompt(context: {
 
   const projectInfo = context.projectName
     ? `You are assisting with project "${context.projectName}" (status: ${context.projectStatus}, stage: ${context.stage}).`
-    : `You are assisting with the user's portfolio of ${context.totalProjects} projects.`;
+    : context.totalProjects > 0
+      ? `You are assisting with the user's portfolio of ${context.totalProjects} projects.`
+      : "The user is new and hasn't created any projects yet.";
 
-  return `You are KORTEX AI, an intelligent project management copilot for software teams. You are a helpful, concise, and proactive AI assistant embedded inside a project management operating system.
+  return `You are KORTEX AI, an intelligent and friendly project management copilot for software teams. You are embedded inside the KORTEX AI Operating System.
 
 ${projectInfo}
 
-CURRENT DATA:
+CURRENT WORKSPACE DATA:
 - Completion: ${context.completionRate}% (${context.totalDone}/${context.totalTasks} tasks done)
 - In progress: ${context.totalInProgress}
 - High-risk tasks: ${context.totalRisk}
 
-TASKS:
-${taskSummary}
+${context.tasks.length > 0 ? `TASKS:\n${taskSummary}` : ""}
+
+YOUR CAPABILITIES:
+- Project management advice and best practices
+- Sprint planning and agile coaching
+- Task breakdown and prioritization
+- Risk analysis and mitigation strategies
+- General software development guidance
+- Code architecture discussions
+- Team productivity tips
+- Any general question the user has
 
 BEHAVIOR RULES:
-1. Be concise but helpful — aim for 2-4 sentences unless the user asks for detail.
-2. Always reference real data from the project. Never make up tasks or numbers.
-3. Use markdown formatting: **bold** for emphasis, bullet points for lists.
-4. For progress/status questions, give a clear summary with completion %.
-5. For risk questions, list specific risky tasks and suggest mitigations.
-6. For suggestions, give actionable, specific recommendations based on the actual task state.
-7. For sprint planning, suggest task prioritization based on status and priority.
-8. If asked something unrelated to project management, briefly answer and redirect to project topics.
-9. You can suggest creating new tasks, changing priorities, or reorganizing work.
-10. Never say "I don't have access to data" — you have full project context above.`;
+1. Be conversational, friendly, and helpful — like a knowledgeable colleague.
+2. Keep responses concise (2-5 sentences) unless the user asks for detail.
+3. When asked about the project/workspace, reference the real data above.
+4. When asked general questions (coding, architecture, best practices), answer naturally and helpfully.
+5. For greetings, respond warmly and offer to help.
+6. Use markdown formatting: **bold** for emphasis, bullet points for lists.
+7. Be proactive — if you notice potential issues in the data, mention them.
+8. Never say "I can't help with that" — always try to be useful.
+9. You can help with anything: coding questions, project advice, career guidance, etc.
+10. Sign off as KORTEX AI when appropriate.`;
 }
 
-/** Call Gemini API and return the response text */
-async function callGemini(apiKey: string, systemPrompt: string, userMessage: string): Promise<string> {
-  const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({
-    model: "gemini-2.0-flash",
-    systemInstruction: systemPrompt,
-  });
-
-  const result = await model.generateContent(userMessage);
-  const response = result.response;
-  return response.text();
+/** Call Gemini API and return the response text, or null on failure */
+async function callGemini(apiKey: string, systemPrompt: string, userMessage: string): Promise<string | null> {
+  try {
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const model = genAI.getGenerativeModel({
+      model: "gemini-2.0-flash",
+      systemInstruction: systemPrompt,
+    });
+    const result = await model.generateContent(userMessage);
+    return result.response.text();
+  } catch (err) {
+    console.error("Gemini API error:", err);
+    return null;
+  }
 }
 
 /** Generate AI response using Gemini API with full project context */
@@ -80,10 +94,11 @@ export const generateResponse = action({
   handler: async (ctx, args) => {
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
-      throw new Error("GEMINI_API_KEY not configured. Add it in the Convex dashboard under Settings → Environment Variables.");
+      // No API key — return null so frontend uses built-in intelligence
+      return null;
     }
 
-    // Gather project context using runQuery (actions can call queries)
+    // Gather project context using runQuery
     let context = {
       projectName: undefined as string | undefined,
       projectStatus: undefined as string | undefined,
@@ -98,7 +113,6 @@ export const generateResponse = action({
     };
 
     if (args.projectId) {
-      // Project-scoped context
       const project = await ctx.runQuery(
         (await import("./_generated/api")).api.projects.get,
         { projectId: args.projectId }
@@ -132,35 +146,38 @@ export const generateResponse = action({
       else if (context.totalTasks > 0) context.stage = "Early Stage";
       else context.stage = "Planning";
     } else {
-      // Global workspace context
-      const insights = await ctx.runQuery(
-        (await import("./_generated/api")).api.ai.getGlobalInsights,
+      const projects = await ctx.runQuery(
+        (await import("./_generated/api")).api.projects.list,
         {}
       );
-      if (insights) {
-        context.totalProjects = insights.totalProjects;
-        context.totalTasks = insights.totalTasks;
-        context.totalDone = insights.totalDone;
-        context.totalInProgress = insights.totalInProgress;
-        context.totalRisk = insights.totalRisk;
-        context.completionRate = insights.globalCompletion;
+      context.totalProjects = projects.length;
+
+      // Gather task stats across all projects
+      for (const p of projects) {
+        const tasks = await ctx.runQuery(
+          (await import("./_generated/api")).api.tasks.list,
+          { projectId: p._id }
+        );
+        context.totalTasks += tasks.length;
+        context.totalDone += tasks.filter((t) => t.status === "done").length;
+        context.totalInProgress += tasks.filter((t) => t.status === "in_progress").length;
+        context.totalRisk += tasks.filter((t) => (t.aiRiskScore ?? 0) > 0.7).length;
       }
+      context.completionRate = context.totalTasks > 0 ? Math.round((context.totalDone / context.totalTasks) * 100) : 0;
     }
 
     const systemPrompt = buildSystemPrompt(context);
 
-    // Build the prompt with conversation history
+    // Build prompt with conversation history
     let prompt = args.userMessage;
     if (args.conversationHistory && args.conversationHistory.length > 0) {
       const historyText = args.conversationHistory
-        .slice(-10) // Last 10 messages for context
+        .slice(-10)
         .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`)
         .join("\n\n");
       prompt = `Previous conversation:\n${historyText}\n\nUser: ${args.userMessage}`;
     }
 
-    // Call Gemini
-    const response = await callGemini(apiKey, systemPrompt, prompt);
-    return response;
+    return await callGemini(apiKey, systemPrompt, prompt);
   },
 });

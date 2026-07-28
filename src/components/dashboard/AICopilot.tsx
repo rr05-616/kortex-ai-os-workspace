@@ -15,6 +15,7 @@ import {
   MessageSquare,
   Zap,
   X,
+  Bot,
 } from "lucide-react";
 
 interface AICopilotProps {
@@ -70,18 +71,16 @@ const typeColors: Record<string, string> = {
 
 const quickSuggestions = [
   "What's the project progress?",
-  "What are the current risks?",
-  "How can I improve?",
+  "What are the risks?",
   "Help me plan a sprint",
-  "Summarize recent activity",
+  "How can I improve?",
+  "Hello!",
 ];
 
 /** Simple markdown renderer for AI responses */
 function renderMarkdown(text: string) {
-  // Split into lines and render
   const lines = text.split("\n");
   return lines.map((line, i) => {
-    // Bold
     let processed: React.ReactNode = line;
     const boldRegex = /\*\*(.+?)\*\*/g;
     const parts: React.ReactNode[] = [];
@@ -101,12 +100,10 @@ function renderMarkdown(text: string) {
       processed = parts;
     }
 
-    // Bullet points
     if (line.startsWith("• ") || line.startsWith("- ")) {
       return <div key={i} className="flex gap-1.5 ml-1"><span className="text-[#0E9F6E] shrink-0">•</span><span>{processed}</span></div>;
     }
 
-    // Numbered list
     const numMatch = line.match(/^(\d+)\.\s/);
     if (numMatch) {
       return <div key={i} className="flex gap-1.5 ml-1"><span className="text-[#0E9F6E] shrink-0 font-medium">{numMatch[1]}.</span><span>{line.slice(numMatch[0].length)}</span></div>;
@@ -121,7 +118,6 @@ export default function AICopilot({ projectId, onClose, expanded = false }: AICo
   const [inputValue, setInputValue] = useState("");
   const [messages, setMessages] = useState<Array<{ role: "user" | "assistant"; content: string }>>([]);
   const [isTyping, setIsTyping] = useState(false);
-  const [aiError, setAiError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const projectData = useQuery(api.ai.getProjectInsights, projectId ? { projectId } : "skip") as ProjectInsightData | null | undefined;
@@ -151,7 +147,6 @@ export default function AICopilot({ projectId, onClose, expanded = false }: AICo
     setInputValue("");
     setMessages((prev) => [...prev, { role: "user", content }]);
     setIsTyping(true);
-    setAiError(null);
 
     try {
       let convId = conversationIdRef.current;
@@ -162,31 +157,27 @@ export default function AICopilot({ projectId, onClose, expanded = false }: AICo
         setConversationId(convId);
       }
 
-      // Try Gemini AI first, fall back to rule-based if it fails
+      // Try Gemini AI first — if it returns null, fall back to smart rule-based
+      let response: string | null = null;
       try {
-        const aiResponse = await generateAIResponse({
+        response = await generateAIResponse({
           projectId,
           userMessage: content,
           conversationHistory: messages.slice(-10),
         });
+      } catch {
+        // Gemini not available — continue with null
+      }
 
-        setMessages((prev) => [...prev, { role: "assistant", content: aiResponse }]);
-
-        // Also store in the conversation record
-        await sendMessageMutation({
-          conversationId: convId,
-          content,
-        });
-      } catch (aiErr) {
-        console.warn("Gemini AI failed, falling back to rule-based:", aiErr);
-        setAiError("AI service temporarily unavailable — showing cached analysis");
-
-        // Fallback to rule-based response
+      if (response) {
+        // Gemini gave us a response — use it directly
+        setMessages((prev) => [...prev, { role: "assistant", content: response! }]);
+      } else {
+        // Fall back to smart rule-based response
         const updatedMessages = await sendMessageMutation({
           conversationId: convId,
           content,
         });
-
         if (updatedMessages && updatedMessages.length > 0) {
           const assistantMsg = updatedMessages[updatedMessages.length - 1];
           setMessages((prev) => [...prev, { role: assistantMsg.role, content: assistantMsg.content }]);
@@ -196,7 +187,7 @@ export default function AICopilot({ projectId, onClose, expanded = false }: AICo
       console.error("AI Copilot error:", err);
       setMessages((prev) => [
         ...prev,
-        { role: "assistant", content: "I encountered an error processing your request. Please try again." },
+        { role: "assistant", content: "Oops! Something went wrong. Please try again." },
       ]);
     } finally {
       setIsTyping(false);
@@ -223,9 +214,9 @@ export default function AICopilot({ projectId, onClose, expanded = false }: AICo
               <Sparkles className="w-4 h-4 text-[#0E9F6E]" />
             </div>
             <div>
-              <h3 className="text-sm font-semibold text-[#E8F5EE]">KORTEX AI Copilot</h3>
+              <h3 className="text-sm font-semibold text-[#E8F5EE]">KORTEX AI</h3>
               <p className="text-[10px] text-[rgba(232,245,238,0.3)]">
-                {projectId ? "Project insights & suggestions" : "Global workspace intelligence"}
+                {projectId ? "Project assistant" : "Your AI copilot"}
               </p>
             </div>
           </div>
@@ -243,7 +234,7 @@ export default function AICopilot({ projectId, onClose, expanded = false }: AICo
         </div>
       </div>
 
-      {/* Insights */}
+      {/* Insights Dashboard */}
       <div className="px-5 py-4">
         {isLoading && (
           <div className="flex items-center gap-2 py-8 justify-center">
@@ -334,7 +325,10 @@ export default function AICopilot({ projectId, onClose, expanded = false }: AICo
               <div className="px-5 py-3 max-h-72 overflow-y-auto scrollbar-hide">
                 {messages.length === 0 && (
                   <div className="py-4">
-                    <p className="text-xs text-[rgba(232,245,238,0.25)] text-center mb-4">Ask me anything about your project</p>
+                    <div className="flex items-center gap-2 justify-center mb-3">
+                      <Bot className="w-4 h-4 text-[#0E9F6E]" />
+                      <p className="text-xs text-[rgba(232,245,238,0.4)]">Hi! I'm your AI copilot. Ask me anything.</p>
+                    </div>
                     <div className="flex flex-wrap gap-1.5 justify-center">
                       {quickSuggestions.map((s, i) => (
                         <button key={i} onClick={() => handleSend(s)} className="px-2.5 py-1.5 rounded-full text-[10px] text-[rgba(232,245,238,0.35)] glass hover:bg-[rgba(14,159,110,0.08)] hover:text-[#0E9F6E] transition-all">
@@ -345,15 +339,14 @@ export default function AICopilot({ projectId, onClose, expanded = false }: AICo
                   </div>
                 )}
 
-                {aiError && (
-                  <motion.div initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }}
-                    className="mb-2 px-3 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-[10px] text-amber-400">
-                    ⚠️ {aiError}
-                  </motion.div>
-                )}
-
                 {messages.map((msg, i) => (
                   <motion.div key={i} initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} className={`mb-2 ${msg.role === "user" ? "text-right" : ""}`}>
+                    {msg.role === "assistant" && (
+                      <div className="flex items-center gap-1.5 mb-1">
+                        <Bot className="w-3 h-3 text-[#0E9F6E]" />
+                        <span className="text-[9px] text-[rgba(232,245,238,0.2)]">KORTEX AI</span>
+                      </div>
+                    )}
                     <div className={`inline-block max-w-[85%] px-3 py-2 rounded-2xl text-xs leading-relaxed ${
                       msg.role === "user" ? "bg-[#0E9F6E] text-white rounded-br-sm" : "bg-[rgba(255,255,255,0.03)] text-[rgba(232,245,238,0.7)] rounded-bl-sm border border-[rgba(255,255,255,0.04)]"
                     }`}>
@@ -379,7 +372,7 @@ export default function AICopilot({ projectId, onClose, expanded = false }: AICo
                 <div className="flex items-center gap-2 glass rounded-xl pl-4 pr-1.5 py-1.5">
                   <input value={inputValue} onChange={(e) => setInputValue(e.target.value)}
                     onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
-                    placeholder="Ask about your project..."
+                    placeholder="Ask me anything..."
                     className="flex-1 bg-transparent text-xs text-[#E8F5EE] placeholder:text-[rgba(232,245,238,0.2)] border-none outline-none" />
                   <button onClick={() => handleSend()} disabled={!inputValue.trim() || isTyping}
                     className="w-7 h-7 rounded-lg bg-[#0E9F6E] flex items-center justify-center hover:bg-[#18C37E] transition-colors disabled:opacity-30">
