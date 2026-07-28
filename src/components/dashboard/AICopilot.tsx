@@ -87,7 +87,15 @@ export default function AICopilot({ projectId, onClose, expanded = false }: AICo
   const globalData = useQuery(api.ai.getGlobalInsights, {}) as GlobalInsightData | null | undefined;
   const createConversation = useMutation(api.ai.createConversation);
   const sendMessageMutation = useMutation(api.ai.sendMessage);
+
+  // Use a ref to avoid stale closure issues with conversation ID
+  const conversationIdRef = useRef<Id<"aiConversations"> | null>(null);
   const [conversationId, setConversationId] = useState<Id<"aiConversations"> | null>(null);
+
+  // Keep ref in sync with state
+  useEffect(() => {
+    conversationIdRef.current = conversationId;
+  }, [conversationId]);
 
   // Auto-open chat when expanded
   useEffect(() => {
@@ -106,37 +114,26 @@ export default function AICopilot({ projectId, onClose, expanded = false }: AICo
     setIsTyping(true);
 
     try {
-      // Create conversation if needed
-      if (!conversationId) {
-        const convId = await createConversation({ projectId, title: content.slice(0, 50) });
+      let convId = conversationIdRef.current;
+
+      // Create conversation if needed — use the returned ID directly
+      if (!convId) {
+        convId = await createConversation({ projectId, title: content.slice(0, 50) });
+        // Update both state and ref immediately
+        conversationIdRef.current = convId;
         setConversationId(convId);
       }
 
-      // Send message to backend — the Convex mutation generates a real context-aware response
-      const targetConvId = conversationId;
-      if (targetConvId) {
-        const updatedMessages = await sendMessageMutation({
-          conversationId: targetConvId,
-          content,
-        });
+      // Send message to backend using the local convId (not stale state)
+      const updatedMessages = await sendMessageMutation({
+        conversationId: convId,
+        content,
+      });
 
-        // The backend returns the full message history with the new response
-        if (updatedMessages && updatedMessages.length > 0) {
-          const assistantMsg = updatedMessages[updatedMessages.length - 1];
-          setMessages((prev) => [...prev, { role: assistantMsg.role, content: assistantMsg.content }]);
-        }
-      } else {
-        // Fallback: create conversation and send in one go
-        const convId = await createConversation({ projectId, title: content.slice(0, 50) });
-        setConversationId(convId);
-        const updatedMessages = await sendMessageMutation({
-          conversationId: convId,
-          content,
-        });
-        if (updatedMessages && updatedMessages.length > 0) {
-          const assistantMsg = updatedMessages[updatedMessages.length - 1];
-          setMessages((prev) => [...prev, { role: assistantMsg.role, content: assistantMsg.content }]);
-        }
+      // The backend returns the full message history with the new response
+      if (updatedMessages && updatedMessages.length > 0) {
+        const assistantMsg = updatedMessages[updatedMessages.length - 1];
+        setMessages((prev) => [...prev, { role: assistantMsg.role, content: assistantMsg.content }]);
       }
     } catch (err) {
       console.error("AI Copilot error:", err);
