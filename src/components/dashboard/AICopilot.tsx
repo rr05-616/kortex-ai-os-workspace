@@ -1,21 +1,12 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { useQuery, useMutation, useAction } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  Sparkles,
-  Send,
-  AlertTriangle,
-  Lightbulb,
-  Activity,
-  Clock,
-  Target,
-  TrendingUp,
-  MessageSquare,
-  Zap,
-  X,
-  Bot,
+  Sparkles, Send, AlertTriangle, Lightbulb, Activity, Clock, Target,
+  TrendingUp, MessageSquare, Zap, X, Bot, CheckCircle2, Database,
+  GitBranch, BarChart3, Brain, Search, Loader2,
 } from "lucide-react";
 
 interface AICopilotProps {
@@ -24,30 +15,25 @@ interface AICopilotProps {
   expanded?: boolean;
 }
 
-interface Insight {
-  type: string;
-  title: string;
-  detail: string;
-  icon?: string;
-}
-
+interface Insight { type: string; title: string; detail: string; icon?: string; }
 interface ProjectInsightData {
   project: { name: string; status: string; healthScore: number; sprintDuration: number };
   stats: { total: number; done: number; inProgress: number; todo: number; backlog: number; review: number; highRisk: number; overdue: number; completionRate: number };
-  stage: string;
-  insights: Insight[];
+  stage: string; insights: Insight[];
+}
+interface GlobalInsightData {
+  totalProjects: number; activeProjects: number; totalTasks: number; totalDone: number;
+  totalInProgress: number; totalRisk: number; globalCompletion: number; insights: Insight[];
 }
 
-interface GlobalInsightData {
-  totalProjects: number;
-  activeProjects: number;
-  totalTasks: number;
-  totalDone: number;
-  totalInProgress: number;
-  totalRisk: number;
-  globalCompletion: number;
-  insights: Insight[];
-}
+type AgentStep = "searching" | "reading" | "analyzing" | "generating";
+
+const agentSteps: Record<AgentStep, { label: string; icon: React.ReactNode }> = {
+  searching: { label: "Searching workspace...", icon: <Search className="w-3 h-3" /> },
+  reading: { label: "Reading project data...", icon: <Database className="w-3 h-3" /> },
+  analyzing: { label: "Analyzing context...", icon: <Brain className="w-3 h-3" /> },
+  generating: { label: "Generating response...", icon: <Sparkles className="w-3 h-3" /> },
+};
 
 const iconMap: Record<string, React.ReactNode> = {
   status: <Activity className="w-4 h-4" />,
@@ -69,15 +55,72 @@ const typeColors: Record<string, string> = {
   insight: "bg-purple-500/8 text-purple-400 border-purple-500/15",
 };
 
-const quickSuggestions = [
-  "What's the project progress?",
-  "What are the risks?",
-  "Help me plan a sprint",
-  "How can I improve?",
-  "Hello!",
-];
+function ContextStatus({ projectId, projectData, globalData }: { projectId?: Id<"projects">; projectData?: ProjectInsightData | null; globalData?: GlobalInsightData | null }) {
+  const projectAnalyses = useQuery(api.ai.getProjectInsights, projectId ? { projectId } : "skip");
+  const hasData = projectId ? projectData : globalData;
 
-/** Simple markdown renderer for AI responses */
+  if (!hasData) return null;
+
+  const items = projectId && projectData
+    ? [
+        { label: "Project", loaded: true },
+        { label: "Tasks", loaded: true, count: projectData.stats.total },
+        { label: "Analytics", loaded: true },
+        { label: "Sprint", loaded: true },
+        { label: "Risks", loaded: true, count: projectData.stats.highRisk },
+      ]
+    : globalData
+      ? [
+          { label: "Workspace", loaded: true },
+          { label: "Projects", loaded: true, count: globalData.totalProjects },
+          { label: "Tasks", loaded: true, count: globalData.totalTasks },
+          { label: "Analytics", loaded: true },
+        ]
+      : [];
+
+  return (
+    <div className="flex flex-wrap gap-1 px-5 pb-2">
+      {items.map((item, i) => (
+        <div key={i} className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-[rgba(14,159,110,0.04)]">
+          <CheckCircle2 className="w-2 h-2 text-[#0E9F6E]" />
+          <span className="text-[8px] text-[rgba(232,245,238,0.25)]">{item.label}</span>
+          {item.count !== undefined && <span className="text-[8px] text-[#0E9F6E]">{item.count}</span>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function DynamicSuggestions({ projectId, projectData, globalData }: { projectId?: Id<"projects">; projectData?: ProjectInsightData | null; globalData?: GlobalInsightData | null }) {
+  const suggestions = useMemo(() => {
+    if (projectId && projectData) {
+      const s: string[] = [];
+      if (projectData.stats.total === 0) { s.push("How do I start my project?"); s.push("Break down this project into tasks"); }
+      else {
+        if (projectData.stats.highRisk > 0) s.push(`What are the ${projectData.stats.highRisk} high-risk tasks?`);
+        if (projectData.stats.overdue > 0) s.push(`Which ${projectData.stats.overdue} tasks are overdue?`);
+        if (projectData.stats.inProgress === 0 && projectData.stats.total > 0) s.push("What should I work on first?");
+        if (projectData.stats.completionRate > 80) s.push("What's left to finish the project?");
+        if (s.length < 3) { s.push("Summarize project progress"); s.push("What should I prioritize?"); }
+        if (s.length < 3) s.push("Plan next sprint");
+      }
+      return s.slice(0, 4);
+    }
+    if (globalData) {
+      if (globalData.totalProjects === 0) return ["How do I create my first project?", "What is KORTEX AI?"];
+      const s: string[] = [];
+      if (globalData.totalRisk > 0) s.push(`Analyze ${globalData.totalRisk} at-risk tasks`);
+      s.push("What's my portfolio status?");
+      if (globalData.totalInProgress === 0 && globalData.totalTasks > 0) s.push("What should I work on?");
+      s.push("Give me an executive summary");
+      return s.slice(0, 4);
+    }
+    return ["Hello!", "What can you do?", "Help me get started"];
+  }, [projectId, projectData, globalData]);
+
+  return suggestions;
+}
+
 function renderMarkdown(text: string) {
   const lines = text.split("\n");
   return lines.map((line, i) => {
@@ -87,28 +130,17 @@ function renderMarkdown(text: string) {
     let lastIndex = 0;
     let match;
     while ((match = boldRegex.exec(line)) !== null) {
-      if (match.index > lastIndex) {
-        parts.push(line.slice(lastIndex, match.index));
-      }
+      if (match.index > lastIndex) parts.push(line.slice(lastIndex, match.index));
       parts.push(<strong key={`b-${i}-${match.index}`} className="text-[#E8F5EE] font-semibold">{match[1]}</strong>);
       lastIndex = match.index + match[0].length;
     }
-    if (lastIndex < line.length) {
-      parts.push(line.slice(lastIndex));
-    }
-    if (parts.length > 0) {
-      processed = parts;
-    }
-
-    if (line.startsWith("• ") || line.startsWith("- ")) {
+    if (lastIndex < line.length) parts.push(line.slice(lastIndex));
+    if (parts.length > 0) processed = parts;
+    if (line.startsWith("• ") || line.startsWith("- "))
       return <div key={i} className="flex gap-1.5 ml-1"><span className="text-[#0E9F6E] shrink-0">•</span><span>{processed}</span></div>;
-    }
-
     const numMatch = line.match(/^(\d+)\.\s/);
-    if (numMatch) {
+    if (numMatch)
       return <div key={i} className="flex gap-1.5 ml-1"><span className="text-[#0E9F6E] shrink-0 font-medium">{numMatch[1]}.</span><span>{line.slice(numMatch[0].length)}</span></div>;
-    }
-
     return <span key={i}>{processed}{i < lines.length - 1 && <br />}</span>;
   });
 }
@@ -118,6 +150,7 @@ export default function AICopilot({ projectId, onClose, expanded = false }: AICo
   const [inputValue, setInputValue] = useState("");
   const [messages, setMessages] = useState<Array<{ role: "user" | "assistant"; content: string }>>([]);
   const [isTyping, setIsTyping] = useState(false);
+  const [agentStep, setAgentStep] = useState<AgentStep | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const projectData = useQuery(api.ai.getProjectInsights, projectId ? { projectId } : "skip") as ProjectInsightData | null | undefined;
@@ -128,18 +161,11 @@ export default function AICopilot({ projectId, onClose, expanded = false }: AICo
 
   const conversationIdRef = useRef<Id<"aiConversations"> | null>(null);
   const [conversationId, setConversationId] = useState<Id<"aiConversations"> | null>(null);
+  const quickSuggestions = DynamicSuggestions({ projectId, projectData, globalData });
 
-  useEffect(() => {
-    conversationIdRef.current = conversationId;
-  }, [conversationId]);
-
-  useEffect(() => {
-    if (expanded) setChatOpen(true);
-  }, [expanded]);
-
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, isTyping]);
+  useEffect(() => { conversationIdRef.current = conversationId; }, [conversationId]);
+  useEffect(() => { if (expanded) setChatOpen(true); }, [expanded]);
+  useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, isTyping]);
 
   const handleSend = async (text?: string) => {
     const content = text || inputValue.trim();
@@ -148,16 +174,21 @@ export default function AICopilot({ projectId, onClose, expanded = false }: AICo
     setMessages((prev) => [...prev, { role: "user", content }]);
     setIsTyping(true);
 
+    // Simulate agent thinking steps
+    const steps: AgentStep[] = ["searching", "reading", "analyzing", "generating"];
+    let stepIdx = 0;
+    const stepTimer = setInterval(() => {
+      if (stepIdx < steps.length) { setAgentStep(steps[stepIdx]); stepIdx++; }
+    }, 400);
+
     try {
       let convId = conversationIdRef.current;
-
       if (!convId) {
         convId = await createConversation({ projectId, title: content.slice(0, 50) });
         conversationIdRef.current = convId;
         setConversationId(convId);
       }
 
-      // Try Gemini AI first — if it returns null, fall back to smart rule-based
       let response: string | null = null;
       try {
         response = await generateAIResponse({
@@ -165,31 +196,23 @@ export default function AICopilot({ projectId, onClose, expanded = false }: AICo
           userMessage: content,
           conversationHistory: messages.slice(-10),
         });
-      } catch {
-        // Gemini not available — continue with null
-      }
+      } catch { /* fall back to rule-based */ }
 
       if (response) {
-        // Gemini gave us a response — use it directly
         setMessages((prev) => [...prev, { role: "assistant", content: response! }]);
       } else {
-        // Fall back to smart rule-based response
-        const updatedMessages = await sendMessageMutation({
-          conversationId: convId,
-          content,
-        });
+        const updatedMessages = await sendMessageMutation({ conversationId: convId, content });
         if (updatedMessages && updatedMessages.length > 0) {
           const assistantMsg = updatedMessages[updatedMessages.length - 1];
           setMessages((prev) => [...prev, { role: assistantMsg.role, content: assistantMsg.content }]);
         }
       }
     } catch (err) {
-      console.error("AI Copilot error:", err);
-      setMessages((prev) => [
-        ...prev,
-        { role: "assistant", content: "Oops! Something went wrong. Please try again." },
-      ]);
+      console.error("AI Agent error:", err);
+      setMessages((prev) => [...prev, { role: "assistant", content: "I encountered an error. Please try again." }]);
     } finally {
+      clearInterval(stepTimer);
+      setAgentStep(null);
       setIsTyping(false);
     }
   };
@@ -199,24 +222,21 @@ export default function AICopilot({ projectId, onClose, expanded = false }: AICo
   const hasGlobalData = !projectId && globalData;
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 20, scale: 0.95 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      exit={{ opacity: 0, y: 20, scale: 0.95 }}
-      transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
-      className="glass-card rounded-2xl overflow-hidden"
-    >
+    <motion.div initial={{ opacity: 0, y: 20, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }}
+      exit={{ opacity: 0, y: 20, scale: 0.95 }} transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
+      className="glass-card rounded-2xl overflow-hidden">
       {/* Header */}
       <div className="px-5 py-4 border-b border-[rgba(255,255,255,0.04)]">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-[rgba(14,159,110,0.1)] flex items-center justify-center">
+            <div className="w-9 h-9 rounded-xl bg-[rgba(14,159,110,0.1)] flex items-center justify-center relative">
               <Sparkles className="w-4 h-4 text-[#0E9F6E]" />
+              <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-[#0E9F6E] border-2 border-[#040705]" />
             </div>
             <div>
-              <h3 className="text-sm font-semibold text-[#E8F5EE]">KORTEX AI</h3>
+              <h3 className="text-sm font-semibold text-[#E8F5EE]">KORTEX AI Agent</h3>
               <p className="text-[10px] text-[rgba(232,245,238,0.3)]">
-                {projectId ? "Project assistant" : "Your AI copilot"}
+                {projectId ? "Project intelligence active" : "Workspace intelligence active"}
               </p>
             </div>
           </div>
@@ -234,6 +254,9 @@ export default function AICopilot({ projectId, onClose, expanded = false }: AICo
         </div>
       </div>
 
+      {/* Context Status */}
+      <ContextStatus projectId={projectId} projectData={projectData} globalData={globalData} />
+
       {/* Insights Dashboard */}
       <div className="px-5 py-4">
         {isLoading && (
@@ -243,7 +266,6 @@ export default function AICopilot({ projectId, onClose, expanded = false }: AICo
             <div className="animate-pulse w-2 h-2 rounded-full bg-[#0E9F6E]" style={{ animationDelay: "0.2s" }} />
           </div>
         )}
-
         {hasProjectData && projectData && (
           <>
             <div className="flex items-center gap-2 mb-4">
@@ -280,7 +302,6 @@ export default function AICopilot({ projectId, onClose, expanded = false }: AICo
             </div>
           </>
         )}
-
         {hasGlobalData && globalData && (
           <>
             <div className="flex items-center gap-2 mb-4">
@@ -320,18 +341,22 @@ export default function AICopilot({ projectId, onClose, expanded = false }: AICo
       {/* Chat */}
       <AnimatePresence>
         {chatOpen && (
-          <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.3 }} className="overflow-hidden">
+          <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.3 }} className="overflow-hidden">
             <div className="border-t border-[rgba(255,255,255,0.04)]">
-              <div className="px-5 py-3 max-h-72 overflow-y-auto scrollbar-hide">
+              <div className="px-5 py-3 max-h-80 overflow-y-auto scrollbar-hide">
                 {messages.length === 0 && (
                   <div className="py-4">
                     <div className="flex items-center gap-2 justify-center mb-3">
                       <Bot className="w-4 h-4 text-[#0E9F6E]" />
-                      <p className="text-xs text-[rgba(232,245,238,0.4)]">Hi! I'm your AI copilot. Ask me anything.</p>
+                      <p className="text-xs text-[rgba(232,245,238,0.4)]">
+                        {projectId ? "I understand your project. Ask me anything about it." : "I'm your AI workspace agent. Ask me anything."}
+                      </p>
                     </div>
                     <div className="flex flex-wrap gap-1.5 justify-center">
                       {quickSuggestions.map((s, i) => (
-                        <button key={i} onClick={() => handleSend(s)} className="px-2.5 py-1.5 rounded-full text-[10px] text-[rgba(232,245,238,0.35)] glass hover:bg-[rgba(14,159,110,0.08)] hover:text-[#0E9F6E] transition-all">
+                        <button key={i} onClick={() => handleSend(s)}
+                          className="px-2.5 py-1.5 rounded-full text-[10px] text-[rgba(232,245,238,0.35)] glass hover:bg-[rgba(14,159,110,0.08)] hover:text-[#0E9F6E] transition-all">
                           {s}
                         </button>
                       ))}
@@ -340,39 +365,52 @@ export default function AICopilot({ projectId, onClose, expanded = false }: AICo
                 )}
 
                 {messages.map((msg, i) => (
-                  <motion.div key={i} initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} className={`mb-2 ${msg.role === "user" ? "text-right" : ""}`}>
+                  <motion.div key={i} initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }}
+                    className={`mb-3 ${msg.role === "user" ? "text-right" : ""}`}>
                     {msg.role === "assistant" && (
                       <div className="flex items-center gap-1.5 mb-1">
                         <Bot className="w-3 h-3 text-[#0E9F6E]" />
                         <span className="text-[9px] text-[rgba(232,245,238,0.2)]">KORTEX AI</span>
                       </div>
                     )}
-                    <div className={`inline-block max-w-[85%] px-3 py-2 rounded-2xl text-xs leading-relaxed ${
-                      msg.role === "user" ? "bg-[#0E9F6E] text-white rounded-br-sm" : "bg-[rgba(255,255,255,0.03)] text-[rgba(232,245,238,0.7)] rounded-bl-sm border border-[rgba(255,255,255,0.04)]"
+                    <div className={`inline-block max-w-[85%] px-3 py-2.5 rounded-2xl text-xs leading-relaxed ${
+                      msg.role === "user" ? "bg-[#0E9F6E] text-white rounded-br-sm" :
+                      "bg-[rgba(255,255,255,0.03)] text-[rgba(232,245,238,0.7)] rounded-bl-sm border border-[rgba(255,255,255,0.04)]"
                     }`}>
                       {msg.role === "assistant" ? renderMarkdown(msg.content) : msg.content}
                     </div>
                   </motion.div>
                 ))}
-                {isTyping && (
-                  <div className="flex items-center gap-2 py-2">
+
+                {isTyping && agentStep && (
+                  <motion.div initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }}
+                    className="flex items-center gap-2 py-2">
                     <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[rgba(255,255,255,0.03)] border border-[rgba(255,255,255,0.04)]">
-                      <Sparkles className="w-3 h-3 text-[#0E9F6E] animate-pulse" />
-                      <div className="flex gap-1">
-                        <div className="w-1.5 h-1.5 rounded-full bg-[#0E9F6E] animate-bounce" style={{ animationDelay: "0ms" }} />
-                        <div className="w-1.5 h-1.5 rounded-full bg-[#0E9F6E] animate-bounce" style={{ animationDelay: "150ms" }} />
-                        <div className="w-1.5 h-1.5 rounded-full bg-[#0E9F6E] animate-bounce" style={{ animationDelay: "300ms" }} />
-                      </div>
+                      <Loader2 className="w-3 h-3 text-[#0E9F6E] animate-spin" />
+                      <span className="text-[10px] text-[rgba(232,245,238,0.3)]">{agentSteps[agentStep].label}</span>
                     </div>
-                  </div>
+                  </motion.div>
                 )}
                 <div ref={messagesEndRef} />
               </div>
+
+              {/* Dynamic suggestions after messages */}
+              {messages.length > 0 && !isTyping && (
+                <div className="px-5 pb-2 flex flex-wrap gap-1">
+                  {quickSuggestions.slice(0, 3).map((s, i) => (
+                    <button key={i} onClick={() => handleSend(s)}
+                      className="px-2 py-1 rounded-full text-[9px] text-[rgba(232,245,238,0.25)] glass hover:bg-[rgba(14,159,110,0.08)] hover:text-[#0E9F6E] transition-all">
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              )}
+
               <div className="px-4 pb-4">
                 <div className="flex items-center gap-2 glass rounded-xl pl-4 pr-1.5 py-1.5">
                   <input value={inputValue} onChange={(e) => setInputValue(e.target.value)}
                     onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
-                    placeholder="Ask me anything..."
+                    placeholder="Ask about your project..."
                     className="flex-1 bg-transparent text-xs text-[#E8F5EE] placeholder:text-[rgba(232,245,238,0.2)] border-none outline-none" />
                   <button onClick={() => handleSend()} disabled={!inputValue.trim() || isTyping}
                     className="w-7 h-7 rounded-lg bg-[#0E9F6E] flex items-center justify-center hover:bg-[#18C37E] transition-colors disabled:opacity-30">
