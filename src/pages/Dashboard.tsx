@@ -8,12 +8,14 @@ import ProjectDetail from "@/components/dashboard/ProjectDetail";
 import NewProjectDialog from "@/components/dashboard/NewProjectDialog";
 import AICopilot from "@/components/dashboard/AICopilot";
 import Settings from "@/components/dashboard/Settings";
+import ImportProjectDialog from "@/components/dashboard/ImportProjectDialog";
 import logo from "@/assets/logo.svg";
 import {
   LogOut,
   Bell,
   Search,
   Plus,
+  Import,
   Kanban,
   BarChart3,
   Users,
@@ -54,6 +56,7 @@ export default function Dashboard() {
   const [showNotifications, setShowNotifications] = useState(false);
   const [showCopilot, setShowCopilot] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showImport, setShowImport] = useState(false);
 
   const projects = useQuery(api.projects.list, {});
   const notificationsData = useQuery(api.notifications.recent, { limit: 10 });
@@ -228,6 +231,9 @@ export default function Dashboard() {
               </p>
             </div>
             <div className="flex items-center gap-2 mt-4 sm:mt-0">
+              <button onClick={() => setShowImport(true)} className="btn-liquid h-9 px-4 text-xs">
+                <Import className="w-3.5 h-3.5 mr-1" />Import Project
+              </button>
               <button onClick={() => setShowNewProject(true)} className="btn-liquid btn-liquid-solid h-9 px-4 text-xs">
                 <Plus className="w-3.5 h-3.5 mr-1" />New Project
               </button>
@@ -340,6 +346,7 @@ export default function Dashboard() {
       </div>
 
       <NewProjectDialog open={showNewProject} onOpenChange={setShowNewProject} />
+      <ImportProjectDialog open={showImport} onOpenChange={setShowImport} />
 
       <AnimatePresence>
         {showCopilot && !selectedProjectId && (

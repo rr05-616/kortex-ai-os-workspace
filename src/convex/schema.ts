@@ -185,6 +185,88 @@ const schema = defineSchema(
       .index("by_user", ["userId"])
       .index("by_project", ["projectId"]),
 
+    // Project Analyses (AI Scanner results)
+    projectAnalyses: defineTable({
+      projectId: v.id("projects"),
+      userId: v.id("users"),
+      url: v.string(),
+      urlType: v.union(
+        v.literal("github"),
+        v.literal("gitlab"),
+        v.literal("bitbucket"),
+        v.literal("website"),
+        v.literal("vercel"),
+        v.literal("netlify"),
+        v.literal("unknown"),
+      ),
+      status: v.union(
+        v.literal("scanning"),
+        v.literal("analyzing"),
+        v.literal("generating"),
+        v.literal("completed"),
+        v.literal("failed"),
+      ),
+      repoInfo: v.optional(v.object({
+        name: v.string(),
+        description: v.optional(v.string()),
+        language: v.optional(v.string()),
+        framework: v.optional(v.string()),
+        stars: v.optional(v.number()),
+        forks: v.optional(v.number()),
+        readme: v.optional(v.string()),
+        fileStructure: v.optional(v.array(v.string())),
+        dependencies: v.optional(v.array(v.string())),
+        topics: v.optional(v.array(v.string())),
+      })),
+      analysis: v.optional(v.object({
+        projectType: v.string(),
+        executiveSummary: v.string(),
+        keyFeatures: v.array(v.string()),
+        missingFeatures: v.array(v.string()),
+        techStack: v.object({
+          frontend: v.array(v.string()),
+          backend: v.array(v.string()),
+          database: v.array(v.string()),
+          cloud: v.array(v.string()),
+          ai: v.array(v.string()),
+        }),
+        architecture: v.string(),
+      })),
+      scores: v.optional(v.object({
+        overall: v.number(),
+        codeQuality: v.number(),
+        uiUx: v.number(),
+        performance: v.number(),
+        security: v.number(),
+        documentation: v.number(),
+        aiReadiness: v.number(),
+        devOps: v.number(),
+        productQuality: v.number(),
+      })),
+      recommendations: v.optional(v.object({
+        immediate: v.array(v.string()),
+        nextSprint: v.array(v.string()),
+        futureRoadmap: v.array(v.string()),
+        strengths: v.array(v.string()),
+        weaknesses: v.array(v.string()),
+        riskLevel: v.string(),
+        developmentStage: v.string(),
+        technicalDebt: v.string(),
+      })),
+      generatedTasks: v.optional(v.array(v.object({
+        title: v.string(),
+        description: v.optional(v.string()),
+        priority: v.string(),
+        tags: v.array(v.string()),
+        estimatedHours: v.optional(v.number()),
+      }))),
+      createdAt: v.number(),
+      completedAt: v.optional(v.number()),
+    })
+      .index("by_user", ["userId"])
+      .index("by_project", ["projectId"])
+      .index("by_status", ["status"]),
+
     // Notifications
     notifications: defineTable({
       userId: v.id("users"),
