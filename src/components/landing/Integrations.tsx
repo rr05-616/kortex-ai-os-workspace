@@ -2,14 +2,14 @@ import { motion } from "framer-motion";
 import { Sparkles } from "lucide-react";
 
 const integrations = [
-  { name: "GitHub", fallback: "GH" },
-  { name: "Slack", fallback: "SL" },
-  { name: "Discord", fallback: "DC" },
-  { name: "Google Calendar", fallback: "GC" },
-  { name: "Jira", fallback: "JR" },
-  { name: "Notion", fallback: "NT" },
-  { name: "Figma", fallback: "FG" },
-  { name: "Vercel", fallback: "VC" },
+  { name: "GitHub", fallback: "GH", url: "https://github.com" },
+  { name: "Slack", fallback: "SL", url: "https://slack.com" },
+  { name: "Discord", fallback: "DC", url: "https://discord.com" },
+  { name: "Google Calendar", fallback: "GC", url: "https://calendar.google.com" },
+  { name: "Jira", fallback: "JR", url: "https://www.atlassian.com/software/jira" },
+  { name: "Notion", fallback: "NT", url: "https://www.notion.so" },
+  { name: "Figma", fallback: "FG", url: "https://www.figma.com" },
+  { name: "Vercel", fallback: "VC", url: "https://vercel.com" },
 ];
 
 export default function Integrations() {
@@ -39,20 +39,23 @@ export default function Integrations() {
 
         <div className="flex flex-wrap items-center justify-center gap-4 max-w-3xl mx-auto">
           {integrations.map((integration, i) => (
-            <motion.div
+            <motion.a
               key={i}
+              href={integration.url}
+              target="_blank"
+              rel="noopener noreferrer"
               initial={{ opacity: 0, y: 20 }}
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true }}
               transition={{ duration: 0.4, delay: i * 0.05 }}
-              whileHover={{ y: -3 }}
-              className="glass-card rounded-2xl px-6 py-5 flex items-center gap-3 min-w-[140px]"
+              whileHover={{ y: -3, scale: 1.02 }}
+              className="glass-card rounded-2xl px-6 py-5 flex items-center gap-3 min-w-[140px] cursor-pointer group"
             >
-              <div className="w-10 h-10 rounded-xl bg-[rgba(255,255,255,0.03)] flex items-center justify-center text-sm font-bold text-[rgba(232,245,238,0.35)] border border-[rgba(255,255,255,0.04)]">
+              <div className="w-10 h-10 rounded-xl bg-[rgba(255,255,255,0.03)] flex items-center justify-center text-sm font-bold text-[rgba(232,245,238,0.35)] border border-[rgba(255,255,255,0.04)] group-hover:border-[rgba(14,159,110,0.2)] group-hover:bg-[rgba(14,159,110,0.06)] transition-all">
                 {integration.fallback}
               </div>
-              <span className="text-xs font-medium text-[rgba(232,245,238,0.6)]">{integration.name}</span>
-            </motion.div>
+              <span className="text-xs font-medium text-[rgba(232,245,238,0.6)] group-hover:text-[#E8F5EE] transition-colors">{integration.name}</span>
+            </motion.a>
           ))}
         </div>
 
