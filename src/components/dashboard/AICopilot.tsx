@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { useQuery, useMutation } from "convex/react";
+import { useQuery, useMutation, useAction } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { motion, AnimatePresence } from "framer-motion";
@@ -76,28 +76,67 @@ const quickSuggestions = [
   "Summarize recent activity",
 ];
 
+/** Simple markdown renderer for AI responses */
+function renderMarkdown(text: string) {
+  // Split into lines and render
+  const lines = text.split("\n");
+  return lines.map((line, i) => {
+    // Bold
+    let processed: React.ReactNode = line;
+    const boldRegex = /\*\*(.+?)\*\*/g;
+    const parts: React.ReactNode[] = [];
+    let lastIndex = 0;
+    let match;
+    while ((match = boldRegex.exec(line)) !== null) {
+      if (match.index > lastIndex) {
+        parts.push(line.slice(lastIndex, match.index));
+      }
+      parts.push(<strong key={`b-${i}-${match.index}`} className="text-[#E8F5EE] font-semibold">{match[1]}</strong>);
+      lastIndex = match.index + match[0].length;
+    }
+    if (lastIndex < line.length) {
+      parts.push(line.slice(lastIndex));
+    }
+    if (parts.length > 0) {
+      processed = parts;
+    }
+
+    // Bullet points
+    if (line.startsWith("• ") || line.startsWith("- ")) {
+      return <div key={i} className="flex gap-1.5 ml-1"><span className="text-[#0E9F6E] shrink-0">•</span><span>{processed}</span></div>;
+    }
+
+    // Numbered list
+    const numMatch = line.match(/^(\d+)\.\s/);
+    if (numMatch) {
+      return <div key={i} className="flex gap-1.5 ml-1"><span className="text-[#0E9F6E] shrink-0 font-medium">{numMatch[1]}.</span><span>{line.slice(numMatch[0].length)}</span></div>;
+    }
+
+    return <span key={i}>{processed}{i < lines.length - 1 && <br />}</span>;
+  });
+}
+
 export default function AICopilot({ projectId, onClose, expanded = false }: AICopilotProps) {
   const [chatOpen, setChatOpen] = useState(expanded);
   const [inputValue, setInputValue] = useState("");
   const [messages, setMessages] = useState<Array<{ role: "user" | "assistant"; content: string }>>([]);
   const [isTyping, setIsTyping] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const projectData = useQuery(api.ai.getProjectInsights, projectId ? { projectId } : "skip") as ProjectInsightData | null | undefined;
   const globalData = useQuery(api.ai.getGlobalInsights, {}) as GlobalInsightData | null | undefined;
   const createConversation = useMutation(api.ai.createConversation);
+  const generateAIResponse = useAction(api.aiActions.generateResponse);
   const sendMessageMutation = useMutation(api.ai.sendMessage);
 
-  // Use a ref to avoid stale closure issues with conversation ID
   const conversationIdRef = useRef<Id<"aiConversations"> | null>(null);
   const [conversationId, setConversationId] = useState<Id<"aiConversations"> | null>(null);
 
-  // Keep ref in sync with state
   useEffect(() => {
     conversationIdRef.current = conversationId;
   }, [conversationId]);
 
-  // Auto-open chat when expanded
   useEffect(() => {
     if (expanded) setChatOpen(true);
   }, [expanded]);
@@ -112,28 +151,46 @@ export default function AICopilot({ projectId, onClose, expanded = false }: AICo
     setInputValue("");
     setMessages((prev) => [...prev, { role: "user", content }]);
     setIsTyping(true);
+    setAiError(null);
 
     try {
       let convId = conversationIdRef.current;
 
-      // Create conversation if needed — use the returned ID directly
       if (!convId) {
         convId = await createConversation({ projectId, title: content.slice(0, 50) });
-        // Update both state and ref immediately
         conversationIdRef.current = convId;
         setConversationId(convId);
       }
 
-      // Send message to backend using the local convId (not stale state)
-      const updatedMessages = await sendMessageMutation({
-        conversationId: convId,
-        content,
-      });
+      // Try Gemini AI first, fall back to rule-based if it fails
+      try {
+        const aiResponse = await generateAIResponse({
+          projectId,
+          userMessage: content,
+          conversationHistory: messages.slice(-10),
+        });
 
-      // The backend returns the full message history with the new response
-      if (updatedMessages && updatedMessages.length > 0) {
-        const assistantMsg = updatedMessages[updatedMessages.length - 1];
-        setMessages((prev) => [...prev, { role: assistantMsg.role, content: assistantMsg.content }]);
+        setMessages((prev) => [...prev, { role: "assistant", content: aiResponse }]);
+
+        // Also store in the conversation record
+        await sendMessageMutation({
+          conversationId: convId,
+          content,
+        });
+      } catch (aiErr) {
+        console.warn("Gemini AI failed, falling back to rule-based:", aiErr);
+        setAiError("AI service temporarily unavailable — showing cached analysis");
+
+        // Fallback to rule-based response
+        const updatedMessages = await sendMessageMutation({
+          conversationId: convId,
+          content,
+        });
+
+        if (updatedMessages && updatedMessages.length > 0) {
+          const assistantMsg = updatedMessages[updatedMessages.length - 1];
+          setMessages((prev) => [...prev, { role: assistantMsg.role, content: assistantMsg.content }]);
+        }
       }
     } catch (err) {
       console.error("AI Copilot error:", err);
@@ -287,25 +344,33 @@ export default function AICopilot({ projectId, onClose, expanded = false }: AICo
                     </div>
                   </div>
                 )}
+
+                {aiError && (
+                  <motion.div initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }}
+                    className="mb-2 px-3 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-[10px] text-amber-400">
+                    ⚠️ {aiError}
+                  </motion.div>
+                )}
+
                 {messages.map((msg, i) => (
                   <motion.div key={i} initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} className={`mb-2 ${msg.role === "user" ? "text-right" : ""}`}>
                     <div className={`inline-block max-w-[85%] px-3 py-2 rounded-2xl text-xs leading-relaxed ${
-                      msg.role === "user" ? "bg-[#0E9F6E] text-white rounded-br-sm" : "bg-[rgba(255,255,255,0.03)] text-[#E8F5EE] rounded-bl-sm border border-[rgba(255,255,255,0.04)]"
+                      msg.role === "user" ? "bg-[#0E9F6E] text-white rounded-br-sm" : "bg-[rgba(255,255,255,0.03)] text-[rgba(232,245,238,0.7)] rounded-bl-sm border border-[rgba(255,255,255,0.04)]"
                     }`}>
-                      {msg.content.split("\n").map((line, j) => (
-                        <span key={j}>
-                          {line.startsWith("**") && line.endsWith("**") ? <strong>{line.replace(/\*\*/g, "")}</strong> : line}
-                          {j < msg.content.split("\n").length - 1 && <br />}
-                        </span>
-                      ))}
+                      {msg.role === "assistant" ? renderMarkdown(msg.content) : msg.content}
                     </div>
                   </motion.div>
                 ))}
                 {isTyping && (
-                  <div className="flex items-center gap-1.5 py-2">
-                    <div className="w-1.5 h-1.5 rounded-full bg-[#0E9F6E] animate-bounce" style={{ animationDelay: "0ms" }} />
-                    <div className="w-1.5 h-1.5 rounded-full bg-[#0E9F6E] animate-bounce" style={{ animationDelay: "150ms" }} />
-                    <div className="w-1.5 h-1.5 rounded-full bg-[#0E9F6E] animate-bounce" style={{ animationDelay: "300ms" }} />
+                  <div className="flex items-center gap-2 py-2">
+                    <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[rgba(255,255,255,0.03)] border border-[rgba(255,255,255,0.04)]">
+                      <Sparkles className="w-3 h-3 text-[#0E9F6E] animate-pulse" />
+                      <div className="flex gap-1">
+                        <div className="w-1.5 h-1.5 rounded-full bg-[#0E9F6E] animate-bounce" style={{ animationDelay: "0ms" }} />
+                        <div className="w-1.5 h-1.5 rounded-full bg-[#0E9F6E] animate-bounce" style={{ animationDelay: "150ms" }} />
+                        <div className="w-1.5 h-1.5 rounded-full bg-[#0E9F6E] animate-bounce" style={{ animationDelay: "300ms" }} />
+                      </div>
+                    </div>
                   </div>
                 )}
                 <div ref={messagesEndRef} />
