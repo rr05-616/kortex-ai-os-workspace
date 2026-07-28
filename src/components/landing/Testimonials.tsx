@@ -7,8 +7,7 @@ const testimonials = [
     role: "Engineering Lead",
     company: "TechCorp",
     avatar: "AC",
-    content:
-      "KORTEX transformed how our team ships features. The AI sprint planning alone saved us 10 hours per week.",
+    content: "KORTEX transformed how our team ships features. The AI sprint planning alone saved us 10 hours per week.",
     rating: 5,
     metric: "10x faster planning",
   },
@@ -17,8 +16,7 @@ const testimonials = [
     role: "VP of Engineering",
     company: "ScaleUp",
     avatar: "SW",
-    content:
-      "The risk detection is incredible. KORTEX identified blockers we didn't even know existed and suggested fixes instantly.",
+    content: "The risk detection is incredible. KORTEX identified blockers we didn't even know existed and suggested fixes.",
     rating: 5,
     metric: "85% risk reduction",
   },
@@ -27,28 +25,16 @@ const testimonials = [
     role: "CTO",
     company: "NexGen",
     avatar: "MJ",
-    content:
-      "We evaluated every project management tool out there. KORTEX is the only one that feels like an actual teammate.",
+    content: "We evaluated every tool out there. KORTEX is the only one that feels like an actual AI teammate, not just software.",
     rating: 5,
     metric: "47% faster delivery",
   },
 ];
 
-function StarRating({ rating }: { rating: number }) {
-  return (
-    <div className="flex items-center gap-0.5">
-      {Array.from({ length: rating }).map((_, i) => (
-        <Star key={i} className="w-3.5 h-3.5 fill-[#0E9F6E] text-[#0E9F6E]" />
-      ))}
-    </div>
-  );
-}
-
 export default function Testimonials() {
   return (
     <section className="relative py-28 px-4">
       <div className="max-w-6xl mx-auto">
-        {/* Section Header */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           whileInView={{ opacity: 1, y: 0 }}
@@ -56,55 +42,47 @@ export default function Testimonials() {
           transition={{ duration: 0.6 }}
           className="text-center mb-16"
         >
-          <span className="inline-flex items-center px-3.5 py-1.5 rounded-full text-xs font-medium bg-[#0E9F6E]/10 text-[#0E9F6E] border border-[#0E9F6E]/20 mb-6">
-            <Sparkles className="w-3 h-3 mr-1.5" />
-            Testimonials
-          </span>
-          <h2 className="text-4xl sm:text-5xl font-bold tracking-tight mb-4">
-            Loved by{" "}
-            <span className="text-gradient-green">Engineering Teams</span>
+          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full glass mb-6">
+            <Sparkles className="w-3 h-3 text-[#0E9F6E]" />
+            <span className="text-xs font-medium text-[rgba(232,245,238,0.6)]">Testimonials</span>
+          </div>
+          <h2 className="text-4xl sm:text-5xl font-bold tracking-tight mb-4 text-[#E8F5EE]">
+            Loved by <span className="text-gradient-green">Engineering Teams</span>
           </h2>
-          <p className="text-muted-foreground/70 text-lg max-w-2xl mx-auto">
-            See why engineering leaders choose KORTEX as their AI operating
-            system.
+          <p className="text-[rgba(232,245,238,0.45)] text-lg max-w-2xl mx-auto">
+            See why engineering leaders choose KORTEX as their AI operating system.
           </p>
         </motion.div>
 
-        {/* Testimonial Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {testimonials.map((testimonial, i) => (
+          {testimonials.map((t, i) => (
             <motion.div
               key={i}
               initial={{ opacity: 0, y: 30 }}
               whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true, margin: "-50px" }}
-              transition={{ duration: 0.5, delay: i * 0.1, ease: [0.16, 1, 0.3, 1] }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.5, delay: i * 0.1 }}
               whileHover={{ y: -4 }}
-              className="glass-card rounded-3xl p-8 transition-all duration-300"
+              className="glass-card rounded-2xl p-7"
             >
-              {/* Rating */}
-              <StarRating rating={testimonial.rating} />
-
-              {/* Quote */}
-              <p className="mt-4 text-sm text-foreground/80 leading-relaxed">
-                &ldquo;{testimonial.content}&rdquo;
-              </p>
-
-              {/* Metric */}
-              <div className="mt-6 pt-4 border-t border-border/40">
-                <p className="text-xs font-semibold text-[#0E9F6E]">{testimonial.metric}</p>
+              <div className="flex items-center gap-0.5 mb-4">
+                {Array.from({ length: t.rating }).map((_, j) => (
+                  <Star key={j} className="w-3.5 h-3.5 fill-[#0E9F6E] text-[#0E9F6E]" />
+                ))}
               </div>
-
-              {/* Author */}
-              <div className="mt-4 flex items-center gap-3">
-                <div className="w-9 h-9 rounded-full bg-[#0E9F6E]/15 flex items-center justify-center text-xs font-semibold text-[#0E9F6E]">
-                  {testimonial.avatar}
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-foreground">{testimonial.name}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {testimonial.role}, {testimonial.company}
-                  </p>
+              <p className="text-sm text-[rgba(232,245,238,0.7)] leading-relaxed mb-4">
+                &ldquo;{t.content}&rdquo;
+              </p>
+              <div className="pt-4 border-t border-[rgba(255,255,255,0.04)]">
+                <p className="text-xs font-semibold text-[#0E9F6E] mb-3">{t.metric}</p>
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-full bg-[rgba(14,159,110,0.1)] flex items-center justify-center text-xs font-semibold text-[#0E9F6E]">
+                    {t.avatar}
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-[#E8F5EE]">{t.name}</p>
+                    <p className="text-xs text-[rgba(232,245,238,0.35)]">{t.role}, {t.company}</p>
+                  </div>
                 </div>
               </div>
             </motion.div>

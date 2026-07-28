@@ -1,4 +1,3 @@
-import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { motion, useScroll, useMotionValueEvent } from "framer-motion";
 import { useState } from "react";
@@ -29,18 +28,15 @@ export default function Navbar() {
       className={cn(
         "fixed top-0 left-0 right-0 z-50 px-4 py-3 transition-all duration-500",
         scrolled
-          ? "mt-3 mx-auto max-w-5xl rounded-full glass-strong"
-          : "mt-6 mx-auto max-w-5xl rounded-full glass",
+          ? "mt-3 mx-auto max-w-5xl rounded-2xl glass-strong"
+          : "mt-6 mx-auto max-w-5xl rounded-2xl glass",
       )}
     >
       <nav className="flex items-center justify-between px-5">
         {/* Logo */}
-        <button
-          onClick={() => navigate("/")}
-          className="flex items-center gap-2.5 group"
-        >
+        <button onClick={() => navigate("/")} className="flex items-center gap-2.5 group">
           <img src={logo} alt="KORTEX" className="w-8 h-8 rounded-lg" />
-          <span className="font-semibold text-sm tracking-tight text-foreground">
+          <span className="font-semibold text-sm tracking-tight text-[#E8F5EE]">
             KORTEX
           </span>
         </button>
@@ -51,7 +47,7 @@ export default function Navbar() {
             <a
               key={link.label}
               href={link.href}
-              className="px-3.5 py-1.5 text-sm text-muted-foreground hover:text-foreground rounded-full hover:bg-black/5 transition-all duration-200"
+              className="px-3.5 py-1.5 text-sm text-[rgba(232,245,238,0.5)] hover:text-[#E8F5EE] rounded-full hover:bg-[rgba(255,255,255,0.03)] transition-all duration-200"
             >
               {link.label}
             </a>
@@ -60,21 +56,18 @@ export default function Navbar() {
 
         {/* Auth Buttons */}
         <div className="flex items-center gap-2">
-          <Button
-            variant="ghost"
-            size="sm"
+          <button
             onClick={() => navigate("/auth")}
-            className="text-sm text-muted-foreground hover:text-foreground rounded-full"
+            className="btn-liquid btn-liquid-ghost text-sm h-9 px-4"
           >
             Sign in
-          </Button>
-          <Button
-            size="sm"
+          </button>
+          <button
             onClick={() => navigate("/auth")}
-            className="text-sm rounded-full bg-[#0E9F6E] hover:bg-[#0C8A5F] text-white shadow-lg shadow-green-500/20"
+            className="btn-liquid btn-liquid-solid text-sm h-9 px-5"
           >
             Get Started
-          </Button>
+          </button>
         </div>
       </nav>
     </motion.header>
