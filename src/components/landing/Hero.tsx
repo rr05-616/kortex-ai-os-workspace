@@ -15,22 +15,24 @@ function CyclingWord() {
   }, []);
 
   return (
-    <span
-      className="inline-flex items-baseline relative overflow-hidden"
-      style={{ height: "1.15em", minWidth: "6em", verticalAlign: "baseline" }}
-    >
-      <AnimatePresence mode="popLayout">
+    <span className="inline-block relative" style={{ minWidth: "6em", textAlign: "left" }}>
+      {/* Invisible placeholder to reserve width and height */}
+      <span className="invisible block" aria-hidden>
+        {words.reduce((a, b) => (a.length > b.length ? a : b))}
+      </span>
+      {/* Animated word overlay */}
+      <AnimatePresence mode="wait" initial={false}>
         <motion.span
           key={words[index]}
-          initial={{ y: "100%", opacity: 0, filter: "blur(8px)" }}
-          animate={{ y: "0%", opacity: 1, filter: "blur(0px)" }}
-          exit={{ y: "-100%", opacity: 0, filter: "blur(8px)" }}
+          initial={{ y: 20, opacity: 0, filter: "blur(6px)" }}
+          animate={{ y: 0, opacity: 1, filter: "blur(0px)" }}
+          exit={{ y: -20, opacity: 0, filter: "blur(6px)" }}
           transition={{
-            y: { duration: 0.5, ease: [0.16, 1, 0.3, 1] },
-            opacity: { duration: 0.35 },
-            filter: { duration: 0.4 },
+            y: { duration: 0.4, ease: [0.16, 1, 0.3, 1] },
+            opacity: { duration: 0.25 },
+            filter: { duration: 0.3 },
           }}
-          className="text-gradient-green absolute bottom-0 left-0 whitespace-nowrap"
+          className="text-gradient-green absolute inset-0 flex items-center"
         >
           {words[index]}
         </motion.span>
