@@ -6,7 +6,7 @@ import { useAuth } from "@/hooks/use-auth";
 import ProjectCard from "@/components/dashboard/ProjectCard";
 import ProjectDetail from "@/components/dashboard/ProjectDetail";
 import NewProjectDialog from "@/components/dashboard/NewProjectDialog";
-import AICopilot from "@/components/dashboard/AICopilot";
+import { AICopilot } from "@/components/dashboard/AICopilot";
 import Settings from "@/components/dashboard/Settings";
 import ImportProjectDialog from "@/components/dashboard/ImportProjectDialog";
 import logo from "@/assets/logo.svg";

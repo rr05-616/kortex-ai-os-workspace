@@ -166,745 +166,462 @@ function useDynamicSuggestions({
       if (projectData.stats.total === 0) {
         s.push("How do I start breaking down this project?");
         s.push("Create a sprint plan for this project");
+        s.push("What tasks should I create first?");
       } else {
-        if (projectData.stats.highRisk > 0)
-          s.push(`What are the ${projectData.stats.highRisk} high-risk tasks?`);
-        if (projectData.stats.overdue > 0)
-          s.push(`Which ${projectData.stats.overdue} tasks are overdue?`);
-        if (projectData.stats.inProgress === 0 && projectData.stats.total > 0)
-          s.push("What should I work on first?");
-        if (projectData.stats.completionRate > 80)
-          s.push("What's left to finish the project?");
-        if (s.length < 3) s.push("Summarize project progress");
-        if (s.length < 3) s.push("What should I prioritize?");
-        if (s.length < 3) s.push("Plan next sprint");
+        if (projectData.stats.highRisk > 0) {
+          s.push("What are the high-risk tasks?");
+        }
+        if (projectData.stats.overdue > 0) {
+          s.push("Which tasks are overdue?");
+        }
+        if (projectData.stats.inProgress === 0 && projectData.stats.todo > 0) {
+          s.push("What should I work on next?");
+        }
+        if (projectData.stage === "Planning") {
+          s.push("Help me plan the next sprint");
+        }
+        s.push("Analyze my project health");
       }
-      return s.slice(0, 4);
+      return s.slice(0, 3);
     }
 
     if (globalData) {
-      if (globalData.totalProjects === 0)
-        return ["How do I create my first project?", "What is KORTEX AI?"];
       const s: string[] = [];
-      if (globalData.totalRisk > 0)
-        s.push(`Analyze ${globalData.totalRisk} at-risk tasks`);
-      s.push("What's my portfolio status?");
-      if (globalData.totalInProgress === 0 && globalData.totalTasks > 0)
-        s.push("What should I work on?");
-      s.push("Give me an executive summary");
-      return s.slice(0, 4);
+      if (globalData.totalProjects === 0) {
+        s.push("How do I create my first project?");
+        s.push("What features does KORTEX AI offer?");
+      } else {
+        if (globalData.totalRisk > 0) {
+          s.push("Show me all high-risk tasks");
+        }
+        if (globalData.totalOverdue > 0) {
+          s.push("What tasks are overdue?");
+        }
+        s.push("Give me a portfolio overview");
+      }
+      return s.slice(0, 3);
     }
 
-    return ["Hello!", "What can you do?", "Help me get started"];
+    return ["What can you help me with?", "How does KORTEX AI work?", "Show me my workspace"];
   }, [projectId, projectData, globalData, messages.length]);
-}
-
-// ─── POST-MESSAGE SUGGESTIONS ────────────────────────────────────────────────
-
-function usePostMessageSuggestions({
-  lastMessage,
-}: {
-  projectData?: ProjectInsightData | null;
-  globalData?: GlobalInsightData | null;
-  lastMessage?: { role: string; content: string };
-}) {
-  return useMemo(() => {
-    if (!lastMessage || lastMessage.role !== "assistant") return [];
-
-    const content = lastMessage.content.toLowerCase();
-    const s: string[] = [];
-
-    if (content.includes("risk") || content.includes("block")) {
-      s.push("How can we mitigate these risks?");
-      s.push("Create tasks to address these issues");
-    }
-    if (content.includes("sprint") || content.includes("plan")) {
-      s.push("Start this sprint");
-      s.push("What dependencies should I check?");
-    }
-    if (content.includes("progress") || content.includes("status")) {
-      s.push("What should I work on next?");
-      s.push("Show me the risks");
-    }
-    if (content.includes("architecture") || content.includes("tech")) {
-      s.push("What improvements do you suggest?");
-      s.push("Review security concerns");
-    }
-    if (s.length === 0) {
-      s.push("Tell me more about this");
-      s.push("What should I do next?");
-      s.push("Give me recommendations");
-    }
-
-    return s.slice(0, 3);
-  }, [lastMessage]);
 }
 
 // ─── MARKDOWN RENDERER ───────────────────────────────────────────────────────
 
-function renderMarkdown(text: string) {
+function renderMarkdown(text: string): React.ReactNode {
   const lines = text.split("\n");
-  return lines.map((line, i) => {
-    const boldRegex = /\*\*(.+?)\*\*/g;
-    const parts: React.ReactNode[] = [];
-    let lastIndex = 0;
-    let match;
-    while ((match = boldRegex.exec(line)) !== null) {
-      if (match.index > lastIndex) parts.push(line.slice(lastIndex, match.index));
-      parts.push(
-        <strong key={`b-${i}-${match.index}`} className="text-[#E8F5EE] font-semibold">
-          {match[1]}
+  const elements: React.ReactNode[] = [];
+  let listItems: string[] = [];
+  let listType: "ul" | "ol" | null = null;
+
+  const flushList = () => {
+    if (listItems.length > 0 && listType) {
+      const Tag = listType;
+      elements.push(
+        <Tag key={`list-${elements.length}`} className={`my-2 ${listType === "ul" ? "list-disc" : "list-decimal"} pl-5 space-y-1`}>
+          {listItems.map((item, i) => (
+            <li key={i} className="text-[13px] text-[rgba(232,245,238,0.7)]">
+              {renderInlineMarkdown(item)}
+            </li>
+          ))}
+        </Tag>
+      );
+      listItems = [];
+      listType = null;
+    }
+  };
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+
+    if (trimmed.startsWith("• ") || trimmed.startsWith("- ")) {
+      flushList();
+      listType = "ul";
+      listItems.push(trimmed.slice(2));
+    } else if (/^\d+\.\s/.test(trimmed)) {
+      flushList();
+      listType = "ol";
+      listItems.push(trimmed.replace(/^\d+\.\s/, ""));
+    } else if (trimmed === "") {
+      flushList();
+    } else {
+      flushList();
+      elements.push(
+        <p key={`p-${elements.length}`} className="text-[13px] text-[rgba(232,245,238,0.7)] my-1.5 leading-relaxed">
+          {renderInlineMarkdown(trimmed)}
+        </p>
+      );
+    }
+  }
+
+  flushList();
+  return elements;
+}
+
+function renderInlineMarkdown(text: string): React.ReactNode {
+  // Handle bold text with ** or __
+  const parts = text.split(/(\*\*[^*]+\*\*|__[^_]+__)/g);
+  return parts.map((part, i) => {
+    if ((part.startsWith("**") && part.endsWith("**")) || (part.startsWith("__") && part.endsWith("__"))) {
+      return (
+        <strong key={i} className="font-semibold text-[rgba(232,245,238,0.9)]">
+          {part.slice(2, -2)}
         </strong>
       );
-      lastIndex = match.index + match[0].length;
     }
-    if (lastIndex < line.length) parts.push(line.slice(lastIndex));
-    const processed = parts.length > 0 ? parts : line;
-
-    if (line.startsWith("• ") || line.startsWith("- "))
-      return (
-        <div key={i} className="flex gap-2 ml-1 my-0.5">
-          <span className="text-[#0E9F6E] shrink-0 mt-0.5">•</span>
-          <span className="leading-relaxed">{processed}</span>
-        </div>
-      );
-
-    const numMatch = line.match(/^(\d+)\.\s/);
-    if (numMatch)
-      return (
-        <div key={i} className="flex gap-2 ml-1 my-0.5">
-          <span className="text-[#0E9F6E] shrink-0 font-semibold">{numMatch[1]}.</span>
-          <span className="leading-relaxed">{line.slice(numMatch[0].length)}</span>
-        </div>
-      );
-
-    if (line.trim() === "") return <div key={i} className="h-2" />;
-
-    if (line.startsWith("═"))
-      return (
-        <div key={i} className="text-[10px] text-[#0E9F6E]/40 font-mono mt-2 mb-1 tracking-widest">
-          {line}
-        </div>
-      );
-
-    return (
-      <span key={i} className="leading-relaxed">
-        {processed}
-        {i < lines.length - 1 && <br />}
-      </span>
-    );
+    // Handle inline code with `
+    const codeParts = part.split(/(`[^`]+`)/g);
+    return codeParts.map((codePart, j) => {
+      if (codePart.startsWith("`") && codePart.endsWith("`")) {
+        return (
+          <code key={`${i}-${j}`} className="px-1 py-0.5 rounded bg-[rgba(14,159,110,0.1)] text-[#0E9F6E] text-[12px] font-mono">
+            {codePart.slice(1, -1)}
+          </code>
+        );
+      }
+      return <span key={`${i}-${j}`}>{codePart}</span>;
+    });
   });
 }
 
 // ─── MAIN COMPONENT ──────────────────────────────────────────────────────────
 
-export default function AICopilot({
-  projectId,
-  onClose,
-  expanded = false,
-}: AICopilotProps) {
-  const [chatOpen, setChatOpen] = useState(expanded);
-  const [inputValue, setInputValue] = useState("");
-  const [messages, setMessages] = useState<
-    Array<{ role: "user" | "assistant"; content: string }>
-  >([]);
-  const [isTyping, setIsTyping] = useState(false);
-  const [agentStep, setAgentStep] = useState<AgentStep | null>(null);
+export function AICopilot({ projectId, onClose, expanded }: AICopilotProps) {
+  const [input, setInput] = useState("");
+  const [messages, setMessages] = useState<Array<{ role: "user" | "assistant"; content: string }>>([]);
+  const [isThinking, setIsThinking] = useState(false);
+  const [currentStep, setCurrentStep] = useState<AgentStep>("searching");
+  const [conversationId, setConversationId] = useState<Id<"aiConversations"> | null>(null);
+  const [showInsights, setShowInsights] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  // Convex hooks
+  // Queries
   const projectData = useQuery(
     api.ai.getProjectInsights,
     projectId ? { projectId } : "skip"
-  ) as ProjectInsightData | null | undefined;
-  const globalData = useQuery(
-    api.ai.getGlobalInsights,
-    {}
-  ) as GlobalInsightData | null | undefined;
+  );
+  const globalData = useQuery(api.ai.getGlobalInsights);
+  const conversations = useQuery(api.ai.getConversations);
+
+  // Mutations
   const createConversation = useMutation(api.ai.createConversation);
   const sendMessageMutation = useMutation(api.ai.sendMessage);
   const saveAssistantResponse = useMutation(api.ai.saveAssistantResponse);
-  const generateAIResponse = useAction(api.aiActions.generateResponse);
 
-  const conversationIdRef = useRef<Id<"aiConversations"> | null>(null);
-  const [conversationId, setConversationId] = useState<Id<"aiConversations"> | null>(null);
+  // Actions
+  const generateResponse = useAction(api.aiActions.generateResponse);
 
-  const quickSuggestions = useDynamicSuggestions({
+  // Dynamic suggestions
+  const suggestions = useDynamicSuggestions({
     projectId,
     projectData,
     globalData,
     messages,
   });
 
-  const postMessageSuggestions = usePostMessageSuggestions({
-    projectData,
-    globalData,
-    lastMessage: messages[messages.length - 1],
-  });
-
-  // Sync ref
-  useEffect(() => {
-    conversationIdRef.current = conversationId;
-  }, [conversationId]);
-
-  // Auto-scroll
+  // Auto-scroll to bottom
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, isTyping]);
+  }, [messages, isThinking]);
 
-  // ── BUILD CONTEXT FROM QUERIED DATA ──
-  const buildContext = () => {
-    if (projectId && projectData) {
-      return {
-        userName: undefined,
-        projectName: projectData.project.name,
-        projectDescription: undefined,
-        projectStatus: projectData.project.status,
-        healthScore: projectData.project.healthScore,
-        sprintDuration: projectData.project.sprintDuration,
-        stage: projectData.stage,
-        tasks: [],
-        totalTasks: projectData.stats.total,
-        totalDone: projectData.stats.done,
-        totalInProgress: projectData.stats.inProgress,
-        totalTodo: projectData.stats.todo,
-        totalBacklog: projectData.stats.backlog,
-        totalReview: projectData.stats.review,
-        totalRisk: projectData.stats.highRisk,
-        totalOverdue: projectData.stats.overdue,
-        completionRate: projectData.stats.completionRate,
-        totalProjects: 1,
-        activeProjects: projectData.project.status === "active" ? 1 : 0,
-        sprints: [],
-        activeSprint: undefined,
-        analyses: [],
-      };
-    }
-    if (globalData) {
-      return {
-        userName: undefined,
-        projectName: undefined,
-        projectDescription: undefined,
-        projectStatus: undefined,
-        healthScore: undefined,
-        sprintDuration: undefined,
-        stage: "Planning",
-        tasks: [],
-        totalTasks: globalData.totalTasks,
-        totalDone: globalData.totalDone,
-        totalInProgress: globalData.totalInProgress,
-        totalTodo: 0,
-        totalBacklog: 0,
-        totalReview: 0,
-        totalRisk: globalData.totalRisk,
-        totalOverdue: globalData.totalOverdue,
-        completionRate: globalData.globalCompletion,
-        totalProjects: globalData.totalProjects,
-        activeProjects: globalData.activeProjects,
-        sprints: [],
-        activeSprint: undefined,
-        analyses: [],
-      };
-    }
-    return {
-      userName: undefined,
-      projectName: undefined,
-      projectDescription: undefined,
-      projectStatus: undefined,
-      healthScore: undefined,
-      sprintDuration: undefined,
-      stage: "Planning",
-      tasks: [],
-      totalTasks: 0,
-      totalDone: 0,
-      totalInProgress: 0,
-      totalTodo: 0,
-      totalBacklog: 0,
-      totalReview: 0,
-      totalRisk: 0,
-      totalOverdue: 0,
-      completionRate: 0,
-      totalProjects: 0,
-      activeProjects: 0,
-      sprints: [],
-      activeSprint: undefined,
-      analyses: [],
-    };
-  };
+  // Focus input on mount
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
 
-  // ── SEND MESSAGE HANDLER ──
-  const handleSend = async (text?: string) => {
-    const content = text || inputValue.trim();
-    if (!content) return;
-    setInputValue("");
-    setMessages((prev) => [...prev, { role: "user", content }]);
-    setIsTyping(true);
+  // Initialize conversation
+  useEffect(() => {
+    const initConversation = async () => {
+      if (!conversationId && conversations !== undefined) {
+        const existing = projectId
+          ? conversations.find((c) => c.projectId === projectId)
+          : conversations[0];
 
-    // Agent thinking animation
-    const steps: AgentStep[] = ["searching", "reading", "analyzing", "generating"];
-    let stepIdx = 0;
-    const stepTimer = setInterval(() => {
-      if (stepIdx < steps.length) {
-        setAgentStep(steps[stepIdx]);
-        stepIdx++;
-      }
-    }, 400);
-
-    try {
-      // Step 1: Create conversation if needed
-      let convId = conversationIdRef.current;
-      if (!convId) {
-        convId = await createConversation({
-          projectId,
-          title: content.slice(0, 50),
-        });
-        conversationIdRef.current = convId;
-        setConversationId(convId);
-      }
-
-      // Step 2: Save user message via mutation (this updates the DB)
-      const result = await sendMessageMutation({
-        conversationId: convId,
-        content,
-      });
-
-      // Step 3: Call the AI action with full context + conversation history
-      const context = buildContext();
-      const conversationHistory = (result?.conversationHistory ?? []).concat([
-        { role: "user", content },
-      ]);
-
-      let response: string | null = null;
-      try {
-        response = await generateAIResponse({
-          projectId,
-          userMessage: content,
-          conversationHistory,
-          context,
-        });
-      } catch (actionErr) {
-        console.error("AI action error:", actionErr);
-        // If action fails, try to get from the saved conversation
-        const updatedMessages = result?.messages;
-        if (updatedMessages && updatedMessages.length > 0) {
-          const assistantMsg = updatedMessages[updatedMessages.length - 1];
-          if (assistantMsg.role === "assistant") {
-            response = assistantMsg.content;
-          }
+        if (existing) {
+          setConversationId(existing._id);
+          setMessages(
+            existing.messages.map((m) => ({
+              role: m.role as "user" | "assistant",
+              content: m.content,
+            }))
+          );
+        } else {
+          const id = await createConversation({
+            projectId,
+            title: projectId && projectData ? projectData.project.name : "Global Chat",
+          });
+          setConversationId(id);
         }
       }
+    };
+    initConversation();
+  }, [conversations, projectId, projectData, createConversation, conversationId]);
 
-      // Step 4: Save the assistant response to the conversation
-      if (response) {
-        await saveAssistantResponse({
-          conversationId: convId,
-          content: response,
+  // Handle send message
+  const handleSend = async (message?: string) => {
+    const text = message || input.trim();
+    if (!text || isThinking) return;
+
+    setInput("");
+    setMessages((prev) => [...prev, { role: "user", content: text }]);
+    setIsThinking(true);
+    setShowInsights(false);
+
+    try {
+      // Ensure conversation exists
+      if (!conversationId) {
+        const id = await createConversation({
+          projectId,
+          title: projectId && projectData ? projectData.project.name : "Global Chat",
         });
-        setMessages((prev) => [...prev, { role: "assistant", content: response! }]);
-      } else {
-        setMessages((prev) => [
-          ...prev,
-          {
-            role: "assistant",
-            content: "I encountered an issue processing your request. Please try again.",
-          },
-        ]);
+        setConversationId(id);
       }
-    } catch (err) {
-      console.error("AI Agent error:", err);
+
+      // Simulate reasoning steps
+      setCurrentStep("searching");
+      await new Promise((r) => setTimeout(r, 400));
+      setCurrentStep("reading");
+      await new Promise((r) => setTimeout(r, 400));
+      setCurrentStep("analyzing");
+      await new Promise((r) => setTimeout(r, 400));
+      setCurrentStep("generating");
+
+      // Send message and get context
+      const result = await sendMessageMutation({
+        conversationId: conversationId!,
+        content: text,
+      });
+
+      // Generate AI response with full context
+      const response = await generateResponse({
+        projectId: projectId ?? undefined,
+        userMessage: text,
+        conversationHistory: result.conversationHistory,
+        context: result.context,
+      });
+
+      // Save assistant response
+      const updatedMessages = await saveAssistantResponse({
+        conversationId: conversationId!,
+        content: response,
+      });
+
+      // Update local state
+      setMessages(
+        updatedMessages.map((m) => ({
+          role: m.role as "user" | "assistant",
+          content: m.content,
+        }))
+      );
+    } catch (error) {
+      console.error("AI response error:", error);
       setMessages((prev) => [
         ...prev,
         {
           role: "assistant",
-          content: "I encountered an error connecting to the workspace. Please try again.",
+          content: "I encountered an error processing your request. Please try again.",
         },
       ]);
     } finally {
-      clearInterval(stepTimer);
-      setAgentStep(null);
-      setIsTyping(false);
+      setIsThinking(false);
     }
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
+  // Handle suggestion click
+  const handleSuggestionClick = (suggestion: string) => {
+    handleSend(suggestion);
+  };
+
+  // Handle key press
+  const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSend();
     }
   };
 
-  const isLoading = projectData === undefined && globalData === undefined;
-  const hasProjectData = projectId && projectData;
-  const hasGlobalData = !projectId && globalData;
+  // Get insight data
+  const insightData = projectId ? projectData : globalData;
+  const insights = insightData?.insights ?? [];
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 20, scale: 0.95 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      exit={{ opacity: 0, y: 20, scale: 0.95 }}
-      transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
-      className="glass-card rounded-2xl overflow-hidden flex flex-col"
-      style={{ maxHeight: expanded ? "80vh" : "600px" }}
+    <div
+      className={`flex flex-col bg-[#0a0f0d] border border-[rgba(14,159,110,0.12)] rounded-2xl overflow-hidden ${
+        expanded ? "h-full" : "h-[600px]"
+      }`}
     >
-      {/* ── HEADER ── */}
-      <div className="px-5 py-4 border-b border-[rgba(255,255,255,0.04)] shrink-0">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-[rgba(14,159,110,0.1)] flex items-center justify-center relative">
-              <Sparkles className="w-5 h-5 text-[#0E9F6E]" />
-              <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-[#0E9F6E] border-2 border-[#040705] animate-pulse" />
-            </div>
-            <div>
-              <h3 className="text-sm font-semibold text-[#E8F5EE]">
-                KORTEX AI Agent
-              </h3>
-              <p className="text-[10px] text-[rgba(232,245,238,0.3)]">
-                {projectId
-                  ? "Autonomous project intelligence"
-                  : "Autonomous workspace intelligence"}
-              </p>
-            </div>
+      {/* Header */}
+      <div className="flex items-center justify-between px-5 py-4 border-b border-[rgba(14,159,110,0.08)]">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-[rgba(14,159,110,0.1)] flex items-center justify-center">
+            <Bot className="w-5 h-5 text-[#0E9F6E]" />
           </div>
-          <div className="flex items-center gap-1.5">
-            <button
-              onClick={() => setChatOpen(!chatOpen)}
-              className={`w-8 h-8 rounded-full flex items-center justify-center transition-all ${
-                chatOpen
-                  ? "bg-[#0E9F6E] text-white"
-                  : "glass hover:bg-[rgba(14,159,110,0.1)]"
-              }`}
-            >
-              <MessageSquare className="w-3.5 h-3.5" />
-            </button>
-            {onClose && (
-              <button
-                onClick={onClose}
-                className="w-8 h-8 rounded-full glass flex items-center justify-center hover:bg-red-500/10 transition-colors"
-              >
-                <X className="w-3.5 h-3.5 text-[rgba(232,245,238,0.3)]" />
-              </button>
-            )}
+          <div>
+            <h3 className="text-sm font-semibold text-[rgba(232,245,238,0.9)]">
+              KORTEX AI Agent
+            </h3>
+            <p className="text-[10px] text-[rgba(232,245,238,0.3)]">
+              Autonomous Workspace Intelligence
+            </p>
           </div>
         </div>
+        {onClose && (
+          <button
+            onClick={onClose}
+            className="p-2 rounded-lg hover:bg-[rgba(14,159,110,0.08)] transition-colors"
+          >
+            <X className="w-4 h-4 text-[rgba(232,245,238,0.4)]" />
+          </button>
+        )}
       </div>
 
-      {/* ── CONTEXT STATUS ── */}
-      <ContextStatus
-        projectId={projectId}
-        projectData={projectData}
-        globalData={globalData}
-      />
+      {/* Context Status */}
+      <ContextStatus projectId={projectId} projectData={projectData} globalData={globalData} />
 
-      {/* ── INSIGHTS DASHBOARD ── */}
-      {!chatOpen && (
-        <div className="px-5 py-4 overflow-y-auto scrollbar-hide">
-          {isLoading && (
-            <div className="flex items-center gap-2 py-8 justify-center">
-              {[0, 1, 2].map((i) => (
-                <div
-                  key={i}
-                  className="animate-pulse w-2 h-2 rounded-full bg-[#0E9F6E]"
-                  style={{ animationDelay: `${i * 0.15}s` }}
-                />
-              ))}
+      {/* Messages Area */}
+      <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+        {/* Welcome Message */}
+        {messages.length === 0 && !isThinking && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="text-center py-8"
+          >
+            <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-[rgba(14,159,110,0.1)] flex items-center justify-center">
+              <Bot className="w-8 h-8 text-[#0E9F6E]" />
             </div>
-          )}
+            <h4 className="text-lg font-semibold text-[rgba(232,245,238,0.9)] mb-2">
+              Workspace Intelligence Active
+            </h4>
+            <p className="text-sm text-[rgba(232,245,238,0.4)] max-w-xs mx-auto">
+              I investigate your entire workspace before answering. Ask me anything about your projects, tasks, or architecture.
+            </p>
+          </motion.div>
+        )}
 
-          {hasProjectData && projectData && (
-            <>
-              <div className="flex items-center gap-2 mb-4">
-                <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full glass">
-                  <Activity className="w-3 h-3 text-[#0E9F6E]" />
-                  <span className="text-[11px] font-medium text-[#0E9F6E]">
-                    {projectData.stage}
-                  </span>
-                </div>
-                <span className="text-[11px] text-[rgba(232,245,238,0.3)]">
-                  {projectData.stats.completionRate}% complete
+        {/* Messages */}
+        <AnimatePresence>
+          {messages.map((msg, i) => (
+            <motion.div
+              key={i}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+            >
+              <div
+                className={`max-w-[85%] rounded-2xl px-4 py-3 ${
+                  msg.role === "user"
+                    ? "bg-[#0E9F6E] text-white"
+                    : "bg-[rgba(14,159,110,0.06)] border border-[rgba(14,159,110,0.1)]"
+                }`}
+              >
+                {msg.role === "assistant" ? (
+                  <div className="space-y-1">{renderMarkdown(msg.content)}</div>
+                ) : (
+                  <p className="text-[13px] leading-relaxed">{msg.content}</p>
+                )}
+              </div>
+            </motion.div>
+          ))}
+        </AnimatePresence>
+
+        {/* Thinking Indicator */}
+        {isThinking && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="flex justify-start"
+          >
+            <div className="bg-[rgba(14,159,110,0.06)] border border-[rgba(14,159,110,0.1)] rounded-2xl px-4 py-3">
+              <div className="flex items-center gap-2 mb-2">
+                <Loader2 className="w-4 h-4 text-[#0E9F6E] animate-spin" />
+                <span className="text-xs font-medium text-[rgba(232,245,238,0.6)]">
+                  {AGENT_STEPS[currentStep].label}
                 </span>
               </div>
-
-              <div className="grid grid-cols-4 gap-2 mb-4">
-                {[
-                  { label: "Done", value: String(projectData.stats.done), color: "text-emerald-400" },
-                  { label: "Active", value: String(projectData.stats.inProgress), color: "text-amber-400" },
-                  { label: "Todo", value: String(projectData.stats.todo), color: "text-blue-400" },
-                  { label: "Risk", value: String(projectData.stats.highRisk), color: "text-red-400" },
-                ].map((stat, i) => (
-                  <div
-                    key={i}
-                    className="text-center py-2.5 rounded-xl glass"
-                  >
-                    <p className={`text-lg font-bold ${stat.color}`}>
-                      {stat.value}
-                    </p>
-                    <p className="text-[9px] text-[rgba(232,245,238,0.25)]">
-                      {stat.label}
-                    </p>
-                  </div>
-                ))}
-              </div>
-
-              <div className="space-y-2">
-                {projectData.insights.map((insight, i) => (
-                  <motion.div
-                    key={i}
-                    initial={{ opacity: 0, x: -10 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ duration: 0.3, delay: i * 0.05 }}
-                    className={`flex items-start gap-2.5 p-3 rounded-xl border ${
-                      TYPE_COLORS[insight.type] || TYPE_COLORS.insight
-                    }`}
-                  >
-                    <div className="shrink-0 mt-0.5">
-                      {ICON_MAP[insight.icon || insight.type] || (
-                        <Zap className="w-4 h-4" />
-                      )}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-semibold">{insight.title}</p>
-                      <p className="text-[11px] opacity-80 mt-0.5 leading-relaxed">
-                        {insight.detail}
-                      </p>
-                    </div>
-                  </motion.div>
-                ))}
-              </div>
-            </>
-          )}
-
-          {hasGlobalData && globalData && (
-            <>
-              <div className="flex items-center gap-2 mb-4">
-                <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full glass">
-                  <Activity className="w-3 h-3 text-[#0E9F6E]" />
-                  <span className="text-[11px] font-medium text-[#0E9F6E]">
-                    Portfolio Overview
-                  </span>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-3 gap-2 mb-4">
-                {[
-                  { label: "Projects", value: String(globalData.totalProjects), color: "text-emerald-400" },
-                  { label: "Tasks", value: String(globalData.totalTasks), color: "text-amber-400" },
-                  { label: "Risk", value: String(globalData.totalRisk), color: "text-red-400" },
-                ].map((stat, i) => (
-                  <div
-                    key={i}
-                    className="text-center py-2.5 rounded-xl glass"
-                  >
-                    <p className={`text-lg font-bold ${stat.color}`}>
-                      {stat.value}
-                    </p>
-                    <p className="text-[9px] text-[rgba(232,245,238,0.25)]">
-                      {stat.label}
-                    </p>
-                  </div>
-                ))}
-              </div>
-
-              <div className="space-y-2">
-                {globalData.insights.map((insight, i) => (
-                  <motion.div
-                    key={i}
-                    initial={{ opacity: 0, x: -10 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ duration: 0.3, delay: i * 0.05 }}
-                    className={`flex items-start gap-2.5 p-3 rounded-xl border ${
-                      TYPE_COLORS[insight.type] || TYPE_COLORS.insight
-                    }`}
-                  >
-                    <div className="shrink-0 mt-0.5">
-                      <Zap className="w-4 h-4" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-semibold">{insight.title}</p>
-                      <p className="text-[11px] opacity-80 mt-0.5 leading-relaxed">
-                        {insight.detail}
-                      </p>
-                    </div>
-                  </motion.div>
-                ))}
-              </div>
-            </>
-          )}
-        </div>
-      )}
-
-      {/* ── CHAT INTERFACE ── */}
-      <AnimatePresence>
-        {chatOpen && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: "auto", opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.3 }}
-            className="overflow-hidden flex flex-col"
-          >
-            <div className="border-t border-[rgba(255,255,255,0.04)] flex flex-col">
-              {/* Messages */}
-              <div className="px-5 py-3 flex-1 overflow-y-auto scrollbar-hide" style={{ maxHeight: "400px" }}>
-                {messages.length === 0 && (
-                  <div className="py-6">
-                    <div className="flex items-center gap-2 justify-center mb-4">
-                      <Bot className="w-5 h-5 text-[#0E9F6E]" />
-                      <p className="text-sm text-[rgba(232,245,238,0.5)] font-medium">
-                        KORTEX AI Agent
-                      </p>
-                    </div>
-                    <p className="text-xs text-center text-[rgba(232,245,238,0.3)] mb-4">
-                      {projectId
-                        ? "I understand your project deeply. Ask me anything — I'll investigate first."
-                        : "I'm your autonomous workspace agent. I investigate your data before every answer."}
-                    </p>
-
-                    {/* Agent status indicators */}
-                    <div className="flex flex-wrap gap-1.5 justify-center mb-4">
-                      {[
-                        { label: "Context Loaded", icon: <CheckCircle2 className="w-2.5 h-2.5" /> },
-                        { label: "Workspace Indexed", icon: <Database className="w-2.5 h-2.5" /> },
-                        { label: "Memory Active", icon: <Brain className="w-2.5 h-2.5" /> },
-                      ].map((item, i) => (
-                        <div
-                          key={i}
-                          className="flex items-center gap-1 px-2 py-1 rounded-md bg-[rgba(14,159,110,0.04)] border border-[rgba(14,159,110,0.08)]"
-                        >
-                          <div className="text-[#0E9F6E]/60">{item.icon}</div>
-                          <span className="text-[9px] text-[rgba(232,245,238,0.3)]">
-                            {item.label}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-
-                    {/* Quick suggestions */}
-                    <div className="flex flex-wrap gap-1.5 justify-center">
-                      {quickSuggestions.map((s, i) => (
-                        <button
-                          key={i}
-                          onClick={() => handleSend(s)}
-                          className="px-3 py-1.5 rounded-full text-[11px] text-[rgba(232,245,238,0.35)] glass hover:bg-[rgba(14,159,110,0.08)] hover:text-[#0E9F6E] transition-all border border-transparent hover:border-[rgba(14,159,110,0.15)]"
-                        >
-                          {s}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Message list */}
-                {messages.map((msg, i) => (
-                  <motion.div
-                    key={i}
-                    initial={{ opacity: 0, y: 8 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.2 }}
-                    className={`mb-3 ${msg.role === "user" ? "text-right" : ""}`}
-                  >
-                    {msg.role === "assistant" && (
-                      <div className="flex items-center gap-1.5 mb-1">
-                        <Bot className="w-3 h-3 text-[#0E9F6E]" />
-                        <span className="text-[9px] text-[rgba(232,245,238,0.2)] font-medium">
-                          KORTEX AI
-                        </span>
-                      </div>
-                    )}
-                    <div
-                      className={`inline-block max-w-[85%] px-4 py-3 rounded-2xl text-xs leading-relaxed ${
-                        msg.role === "user"
-                          ? "bg-[#0E9F6E] text-white rounded-br-sm"
-                          : "bg-[rgba(255,255,255,0.03)] text-[rgba(232,245,238,0.7)] rounded-bl-sm border border-[rgba(255,255,255,0.04)]"
-                      }`}
-                    >
-                      {msg.role === "assistant"
-                        ? renderMarkdown(msg.content)
-                        : msg.content}
-                    </div>
-                  </motion.div>
-                ))}
-
-                {/* Agent thinking indicator */}
-                {isTyping && agentStep && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 5 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="mb-3"
-                  >
-                    <div className="flex items-center gap-1.5 mb-1">
-                      <Bot className="w-3 h-3 text-[#0E9F6E]" />
-                      <span className="text-[9px] text-[rgba(232,245,238,0.2)] font-medium">
-                        KORTEX AI
-                      </span>
-                    </div>
-                    <div className="inline-flex flex-col gap-1 px-4 py-3 rounded-2xl rounded-bl-sm bg-[rgba(255,255,255,0.03)] border border-[rgba(255,255,255,0.04)]">
-                      <div className="flex items-center gap-2">
-                        <Loader2 className="w-3.5 h-3.5 text-[#0E9F6E] animate-spin" />
-                        <span className="text-[11px] text-[#0E9F6E] font-medium">
-                          {AGENT_STEPS[agentStep].label}
-                        </span>
-                      </div>
-                      <span className="text-[10px] text-[rgba(232,245,238,0.25)] ml-5.5">
-                        {AGENT_STEPS[agentStep].sublabel}
-                      </span>
-                    </div>
-                  </motion.div>
-                )}
-
-                <div ref={messagesEndRef} />
-              </div>
-
-              {/* Post-message suggestions */}
-              {postMessageSuggestions.length > 0 && !isTyping && (
-                <div className="px-5 pb-2 flex flex-wrap gap-1.5">
-                  {postMessageSuggestions.map((s, i) => (
-                    <button
-                      key={i}
-                      onClick={() => handleSend(s)}
-                      className="px-2.5 py-1 rounded-full text-[10px] text-[rgba(232,245,238,0.3)] glass hover:bg-[rgba(14,159,110,0.08)] hover:text-[#0E9F6E] transition-all border border-transparent hover:border-[rgba(14,159,110,0.15)]"
-                    >
-                      {s}
-                    </button>
-                  ))}
-                </div>
-              )}
-
-              {/* Input */}
-              <div className="px-5 pb-4 pt-2 shrink-0">
-                <div className="flex items-center gap-2 glass rounded-xl px-4 py-2.5 border border-[rgba(255,255,255,0.04)] focus-within:border-[rgba(14,159,110,0.3)] transition-colors">
-                  <input
-                    type="text"
-                    value={inputValue}
-                    onChange={(e) => setInputValue(e.target.value)}
-                    onKeyDown={handleKeyDown}
-                    placeholder={
-                      projectId
-                        ? "Ask about your project..."
-                        : "Ask anything about your workspace..."
-                    }
-                    className="flex-1 bg-transparent text-xs text-[#E8F5EE] placeholder:text-[rgba(232,245,238,0.2)] outline-none"
-                    disabled={isTyping}
-                  />
-                  <button
-                    onClick={() => handleSend()}
-                    disabled={!inputValue.trim() || isTyping}
-                    className="w-8 h-8 rounded-lg bg-[#0E9F6E] flex items-center justify-center text-white disabled:opacity-30 disabled:cursor-not-allowed hover:bg-[#18C37E] transition-colors shrink-0"
-                  >
-                    {isTyping ? (
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    ) : (
-                      <ArrowUp className="w-3.5 h-3.5" />
-                    )}
-                  </button>
-                </div>
-                <p className="text-[9px] text-[rgba(232,245,238,0.15)] text-center mt-2">
-                  Powered by KORTEX AI — Workspace Intelligence Agent
-                </p>
-              </div>
+              <p className="text-[11px] text-[rgba(232,245,238,0.3)]">
+                {AGENT_STEPS[currentStep].sublabel}
+              </p>
             </div>
           </motion.div>
         )}
-      </AnimatePresence>
-    </motion.div>
+
+        <div ref={messagesEndRef} />
+      </div>
+
+      {/* Insights Panel */}
+      {showInsights && insights.length > 0 && messages.length === 0 && (
+        <div className="px-5 pb-4">
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-[10px] font-medium text-[rgba(232,245,238,0.3)] uppercase tracking-wider">
+              Workspace Insights
+            </span>
+            <button
+              onClick={() => setShowInsights(false)}
+              className="text-[10px] text-[rgba(232,245,238,0.2)] hover:text-[rgba(232,245,238,0.4)]"
+            >
+              Dismiss
+            </button>
+          </div>
+          <div className="space-y-2">
+            {insights.slice(0, 3).map((insight, i) => (
+              <div
+                key={i}
+                className={`flex items-start gap-2 p-2 rounded-lg border ${TYPE_COLORS[insight.type] || TYPE_COLORS.insight}`}
+              >
+                <div className="mt-0.5">{ICON_MAP[(insight as { icon?: string }).icon ?? insight.type] ?? ICON_MAP.insight}</div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-[11px] font-medium">{insight.title}</p>
+                  <p className="text-[10px] opacity-70 mt-0.5 line-clamp-2">{insight.detail}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Suggestions */}
+      {suggestions.length > 0 && messages.length === 0 && !isThinking && (
+        <div className="px-5 pb-3">
+          <div className="flex flex-wrap gap-2">
+            {suggestions.map((suggestion, i) => (
+              <button
+                key={i}
+                onClick={() => handleSuggestionClick(suggestion)}
+                className="px-3 py-1.5 text-[11px] rounded-full bg-[rgba(14,159,110,0.06)] border border-[rgba(14,159,110,0.1)] text-[rgba(232,245,238,0.6)] hover:bg-[rgba(14,159,110,0.12)] hover:text-[rgba(232,245,238,0.8)] transition-all"
+              >
+                {suggestion}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Input Area */}
+      <div className="px-5 py-4 border-t border-[rgba(14,159,110,0.08)]">
+        <div className="flex items-center gap-3">
+          <div className="flex-1 relative">
+            <input
+              ref={inputRef}
+              type="text"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyPress={handleKeyPress}
+              placeholder="Ask about your workspace..."
+              disabled={isThinking}
+              className="w-full px-4 py-3 bg-[rgba(14,159,110,0.04)] border border-[rgba(14,159,110,0.1)] rounded-xl text-[13px] text-[rgba(232,245,238,0.9)] placeholder-[rgba(232,245,238,0.2)] focus:outline-none focus:border-[rgba(14,159,110,0.3)] disabled:opacity-50"
+            />
+          </div>
+          <button
+            onClick={() => handleSend()}
+            disabled={!input.trim() || isThinking}
+            className="p-3 rounded-xl bg-[#0E9F6E] text-white hover:bg-[#0c8a5f] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            <ArrowUp className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }

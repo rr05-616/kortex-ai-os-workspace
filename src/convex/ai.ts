@@ -267,7 +267,7 @@ export const createConversation = mutation({
   },
 });
 
-// ─── WORKSPACE CONTEXT BUILDER ───────────────────────────────────────────────
+// ─── ENHANCED WORKSPACE CONTEXT BUILDER ──────────────────────────────────────
 
 async function gatherWorkspaceContext(
   ctx: any,
@@ -275,6 +275,7 @@ async function gatherWorkspaceContext(
   projectId?: string
 ) {
   const context: any = {
+    userName: undefined,
     projectName: undefined,
     projectDescription: undefined,
     projectStatus: undefined,
@@ -297,6 +298,12 @@ async function gatherWorkspaceContext(
     activeSprint: undefined,
     analyses: [],
   };
+
+  // Get user info
+  const user = await ctx.db.get(userId);
+  if (user) {
+    context.userName = user.name ?? user.email ?? "User";
+  }
 
   if (projectId) {
     const project = await ctx.db.get(projectId);
@@ -324,6 +331,7 @@ async function gatherWorkspaceContext(
       dueDate: t.dueDate,
       estimatedHours: t.estimatedHours,
       tags: t.tags,
+      subtasks: t.subtasks,
     }));
     context.totalTasks = tasks.length;
     context.totalDone = tasks.filter((t: any) => t.status === "done").length;
@@ -399,6 +407,9 @@ async function gatherWorkspaceContext(
         weaknesses: a.recommendations?.weaknesses ?? [],
         techStack: a.analysis?.techStack ?? { frontend: [], backend: [], database: [], cloud: [], ai: [] },
         architecture: a.analysis?.architecture ?? "Not analyzed",
+        components: a.analysis?.components ?? [],
+        routes: a.analysis?.routes ?? [],
+        dependencies: a.analysis?.dependencies ?? [],
       }));
     } catch { /* analyses may not exist */ }
   } else {
@@ -437,6 +448,7 @@ async function gatherWorkspaceContext(
           dueDate: t.dueDate,
           estimatedHours: t.estimatedHours,
           tags: t.tags,
+          subtasks: t.subtasks,
         }))
       );
     }
@@ -455,13 +467,13 @@ async function gatherWorkspaceContext(
   return context;
 }
 
-// ─── SEND MESSAGE ────────────────────────────────────────────────────────────
+// ─── ENHANCED SEND MESSAGE ───────────────────────────────────────────────────
 
 /**
  * Send a message and get a response.
  * This mutation:
  * 1. Loads the full conversation history
- * 2. Gathers complete workspace context
+ * 2. Gathers complete workspace context (including user name)
  * 3. Calls the generateResponse action with full context + history
  * 4. Stores the response
  *
@@ -489,11 +501,11 @@ export const sendMessage = mutation({
       { role: "user" as const, content: args.content, timestamp: now },
     ];
 
-    // Gather full workspace context
+    // Gather full workspace context (including user name)
     const context = await gatherWorkspaceContext(ctx, user._id, conversation.projectId ?? undefined);
 
-    // Build conversation history for the AI (last 10 messages for context window)
-    const conversationHistory = messages.slice(-10).map((m) => ({
+    // Build conversation history for the AI (last 15 messages for better context)
+    const conversationHistory = messages.slice(-15).map((m) => ({
       role: m.role,
       content: m.content,
     }));
