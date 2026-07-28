@@ -1,8 +1,9 @@
 import { useState, useRef, useEffect, useMemo } from "react";
-import { useQuery, useMutation, useAction } from "convex/react";
+import { useQuery, useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { motion, AnimatePresence } from "framer-motion";
+import { sendToBackend, checkBackendHealth } from "@/lib/backend";
 import {
   Sparkles, X, Bot, CheckCircle2, Search, Brain,
   Database, Activity, AlertTriangle, Lightbulb, TrendingUp,
@@ -95,10 +96,12 @@ function ContextStatus({
   projectId,
   projectData,
   globalData,
+  backendReady,
 }: {
   projectId?: Id<"projects">;
   projectData?: ProjectInsightData | null;
   globalData?: GlobalInsightData | null;
+  backendReady: boolean | null;
 }) {
   const hasData = projectId ? projectData : globalData;
   if (!hasData) return null;
@@ -112,6 +115,7 @@ function ContextStatus({
           { label: "Sprint", loaded: true, icon: <Activity className="w-2.5 h-2.5" /> },
           { label: "Risks", loaded: true, count: projectData.stats.highRisk, icon: <AlertTriangle className="w-2.5 h-2.5" /> },
           { label: "Memory", loaded: true, icon: <Brain className="w-2.5 h-2.5" /> },
+          { label: "Backend", loaded: backendReady === true, icon: <Database className="w-2.5 h-2.5" /> },
         ]
       : globalData
         ? [
@@ -120,6 +124,7 @@ function ContextStatus({
             { label: "Tasks", loaded: true, count: globalData.totalTasks, icon: <Target className="w-2.5 h-2.5" /> },
             { label: "Analytics", loaded: true, icon: <BarChart3 className="w-2.5 h-2.5" /> },
             { label: "Memory", loaded: true, icon: <Brain className="w-2.5 h-2.5" /> },
+            { label: "Backend", loaded: backendReady === true, icon: <Database className="w-2.5 h-2.5" /> },
           ]
         : [];
 
@@ -309,8 +314,11 @@ export function AICopilot({ projectId, onClose, expanded }: AICopilotProps) {
   const sendMessageMutation = useMutation(api.ai.sendMessage);
   const saveAssistantResponse = useMutation(api.ai.saveAssistantResponse);
 
-  // Actions
-  const generateResponse = useAction(api.aiActions.generateResponse);
+  // Check backend health on mount
+  const [backendReady, setBackendReady] = useState<boolean | null>(null);
+  useEffect(() => {
+    checkBackendHealth().then(setBackendReady);
+  }, []);
 
   // Dynamic suggestions
   const suggestions = useDynamicSuggestions({
@@ -394,13 +402,14 @@ export function AICopilot({ projectId, onClose, expanded }: AICopilotProps) {
         content: text,
       });
 
-      // Generate AI response with full context
-      const response = await generateResponse({
-        projectId: projectId ?? undefined,
-        userMessage: text,
-        conversationHistory: result.conversationHistory,
-        context: result.context,
-      });
+      // Call FastAPI Python backend for AI response
+      const backendResponse = await sendToBackend(
+        text,
+        activeConversationId as unknown as string,
+        projectId as unknown as string,
+        result.conversationHistory,
+      );
+      const response = backendResponse.response;
 
       // Save assistant response
       const updatedMessages = await saveAssistantResponse({
@@ -478,7 +487,7 @@ export function AICopilot({ projectId, onClose, expanded }: AICopilotProps) {
       </div>
 
       {/* Context Status */}
-      <ContextStatus projectId={projectId} projectData={projectData} globalData={globalData} />
+      <ContextStatus projectId={projectId} projectData={projectData} globalData={globalData} backendReady={backendReady} />
 
       {/* Messages Area */}
       <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
