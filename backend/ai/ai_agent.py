@@ -109,9 +109,10 @@ class AIAgent:
 
         # ── Step 7: Build LLM Prompt ──
         system_prompt = self._build_system_prompt(ctx, memory, analysis, recommendation)
-        memory_context = memory.get_context_string()
 
         # ── Step 8: LLM Generation ──
+        # Pass API key from request to orchestrator
+        self.llm_orchestrator.set_request_api_key(request.gemini_api_key)
         llm_response = await self.llm_orchestrator.generate(
             system_prompt=system_prompt,
             user_message=request.message,

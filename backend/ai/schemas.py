@@ -214,6 +214,7 @@ class ChatRequest(BaseModel):
     project_id: Optional[str] = None
     conversation_id: Optional[str] = None
     conversation_history: list[dict[str, str]] = []
+    gemini_api_key: Optional[str] = None
 
 
 class ChatResponse(BaseModel):

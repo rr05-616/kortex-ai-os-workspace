@@ -4,12 +4,14 @@
  */
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:8000";
+const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY || "";
 
 export interface ChatRequest {
   message: string;
   project_id?: string;
   conversation_id?: string;
   conversation_history: Array<{ role: string; content: string }>;
+  gemini_api_key?: string;
 }
 
 export interface ChatResponse {
@@ -35,6 +37,7 @@ export async function sendToBackend(
     conversation_id: conversationId,
     project_id: projectId,
     conversation_history: conversationHistory,
+    gemini_api_key: GEMINI_KEY || undefined,
   };
 
   const response = await fetch(`${BACKEND_URL}/api/chat`, {

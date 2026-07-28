@@ -20,16 +20,17 @@ class LLMOrchestrator:
         self.openai_key = os.getenv("OPENAI_API_KEY", "")
         self._gemini_client = None
         self._openai_client = None
+        self._request_gemini_key: str | None = None
 
-    def _get_gemini(self):
-        if self._gemini_client is None and self.gemini_key:
-            try:
-                import google.generativeai as genai
-                genai.configure(api_key=self.gemini_key)
-                self._gemini_client = genai.GenerativeModel("gemini-2.0-flash")
-            except Exception as e:
-                logger.warning("gemini.init.failed", error=str(e))
-        return self._gemini_client
+    def _get_gemini_with_key(self, key: str):
+        """Get Gemini model with a specific API key."""
+        try:
+            import google.generativeai as genai
+            genai.configure(api_key=key)
+            return genai.GenerativeModel("gemini-2.0-flash")
+        except Exception as e:
+            logger.warning("gemini.init.failed", error=str(e))
+            return None
 
     def _get_openai(self):
         if self._openai_client is None and self.openai_key:
@@ -39,6 +40,15 @@ class LLMOrchestrator:
             except Exception as e:
                 logger.warning("openai.init.failed", error=str(e))
         return self._openai_client
+
+    def set_request_api_key(self, key: str | None):
+        """Set API key from the current request (overrides env var)."""
+        self._request_gemini_key = key
+
+    @property
+    def effective_gemini_key(self) -> str:
+        """Return the API key from request or env var."""
+        return self._request_gemini_key or self.gemini_key
 
     async def generate(
         self,
@@ -52,10 +62,11 @@ class LLMOrchestrator:
         """
         logger.info("llm_orchestrator.generate", message=user_message[:80])
 
-        # Try Gemini first
-        if self.gemini_key:
+        # Try Gemini first (request key takes precedence over env var)
+        gemini_key = self.effective_gemini_key
+        if gemini_key:
             result = await self._generate_gemini(
-                system_prompt, user_message, conversation_history
+                system_prompt, user_message, conversation_history, gemini_key
             )
             if result:
                 return result
@@ -76,10 +87,15 @@ class LLMOrchestrator:
         system_prompt: str,
         user_message: str,
         history: list[dict[str, str]] | None,
+        api_key: str | None = None,
     ) -> str | None:
         """Generate using Google Gemini."""
         try:
-            model = self._get_gemini()
+            # Use provided key or fall back to env/config key
+            key = api_key or self.gemini_key
+            if not key:
+                return None
+            model = self._get_gemini_with_key(key)
             if not model:
                 return None
 

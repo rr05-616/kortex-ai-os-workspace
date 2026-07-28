@@ -3,6 +3,11 @@
 from __future__ import annotations
 
 import os
+from dotenv import load_dotenv
+
+# Load .env file from backend directory before anything else
+load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
+
 import structlog
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
