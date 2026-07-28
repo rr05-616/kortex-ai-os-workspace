@@ -3,6 +3,7 @@ import { cn } from "@/lib/utils";
 import { motion, useScroll, useMotionValueEvent } from "framer-motion";
 import { useState } from "react";
 import { useNavigate } from "react-router";
+import logo from "@/assets/logo.svg";
 
 const navLinks = [
   { label: "Features", href: "#features" },
@@ -38,10 +39,7 @@ export default function Navbar() {
           onClick={() => navigate("/")}
           className="flex items-center gap-2.5 group"
         >
-          <div className="relative flex items-center justify-center w-8 h-8 rounded-lg bg-[#0E9F6E]">
-            <span className="text-white font-bold text-sm tracking-tight">K</span>
-            <div className="absolute inset-0 rounded-lg ring-1 ring-white/20 ring-inset" />
-          </div>
+          <img src={logo} alt="KORTEX" className="w-8 h-8 rounded-lg" />
           <span className="font-semibold text-sm tracking-tight text-foreground">
             KORTEX
           </span>

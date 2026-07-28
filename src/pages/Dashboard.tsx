@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button";
 import ProjectCard from "@/components/dashboard/ProjectCard";
 import ProjectDetail from "@/components/dashboard/ProjectDetail";
 import NewProjectDialog from "@/components/dashboard/NewProjectDialog";
+import AICopilot from "@/components/dashboard/AICopilot";
+import Settings from "@/components/dashboard/Settings";
 import {
   LayoutDashboard,
   LogOut,
@@ -25,11 +27,14 @@ import {
   ListTodo,
   Target,
   ChevronRight,
+  Settings as SettingsIcon,
+  MessageSquare,
 } from "lucide-react";
 import { useNavigate } from "react-router";
 import { motion, AnimatePresence } from "framer-motion";
+import logo from "@/assets/logo.svg";
 
-type View = "dashboard" | "projects" | "sprints" | "analytics";
+type View = "dashboard" | "projects" | "sprints" | "analytics" | "settings" | "copilot";
 
 const navItems = [
   { id: "dashboard" as View, label: "Dashboard", icon: LayoutDashboard },
@@ -47,13 +52,14 @@ export default function Dashboard() {
   const [selectedProjectId, setSelectedProjectId] = useState<Id<"projects"> | null>(null);
   const [showNewProject, setShowNewProject] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
+  const [showCopilot, setShowCopilot] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
 
   // Real data from Convex
   const projects = useQuery(api.projects.list, {});
   const notificationsData = useQuery(api.notifications.recent, { limit: 10 });
   const unreadCount = useQuery(api.notifications.unreadCount, {});
   const markAllRead = useMutation(api.notifications.markAllRead);
-  const createProject = useMutation(api.projects.create);
 
   const handleSignOut = async () => {
     await signOut();
@@ -81,11 +87,24 @@ export default function Dashboard() {
                 >
                   <ChevronRight className="w-3.5 h-3.5 text-muted-foreground rotate-180" />
                 </button>
-                <div className="w-7 h-7 rounded-lg bg-[#0E9F6E] flex items-center justify-center">
-                  <span className="text-white font-bold text-xs">K</span>
+                <div className="flex items-center gap-2">
+                  <img src={logo} alt="KORTEX" className="w-7 h-7 rounded-lg" />
+                  <span className="text-xs font-semibold text-foreground">KORTEX</span>
                 </div>
               </div>
               <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setShowCopilot(true)}
+                  className="w-8 h-8 rounded-full glass flex items-center justify-center hover:bg-[#0E9F6E]/10 transition-colors"
+                >
+                  <MessageSquare className="w-3.5 h-3.5 text-[#0E9F6E]" />
+                </button>
+                <button
+                  onClick={() => setShowSettings(true)}
+                  className="w-8 h-8 rounded-full glass flex items-center justify-center hover:bg-[#0E9F6E]/10 transition-colors"
+                >
+                  <SettingsIcon className="w-3.5 h-3.5 text-muted-foreground" />
+                </button>
                 <div className="w-7 h-7 rounded-full bg-[#0E9F6E]/15 flex items-center justify-center text-[10px] font-semibold text-[#0E9F6E]">
                   {user?.name?.charAt(0)?.toUpperCase() || "U"}
                 </div>
@@ -99,6 +118,44 @@ export default function Dashboard() {
             />
           </main>
         </div>
+
+        {/* AI Copilot Overlay */}
+        <AnimatePresence>
+          {showCopilot && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4"
+              onClick={() => setShowCopilot(false)}
+            >
+              <div onClick={(e) => e.stopPropagation()} className="w-full max-w-lg">
+                <AICopilot
+                  projectId={selectedProjectId}
+                  onClose={() => setShowCopilot(false)}
+                  expanded
+                />
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Settings Overlay */}
+        <AnimatePresence>
+          {showSettings && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4"
+              onClick={() => setShowSettings(false)}
+            >
+              <div onClick={(e) => e.stopPropagation()} className="w-full max-w-3xl">
+                <Settings onClose={() => setShowSettings(false)} />
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     );
   }
@@ -114,9 +171,10 @@ export default function Dashboard() {
         <header className="sticky top-0 z-40 px-4 pt-4 pb-2">
           <div className="max-w-7xl mx-auto glass-strong rounded-full px-5 py-2.5 flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-lg bg-[#0E9F6E] flex items-center justify-center shadow-sm">
-                <span className="text-white font-bold text-sm">K</span>
-              </div>
+              <button onClick={() => navigate("/")} className="flex items-center gap-2">
+                <img src={logo} alt="KORTEX" className="w-8 h-8 rounded-lg" />
+                <span className="text-sm font-bold text-foreground hidden sm:inline">KORTEX</span>
+              </button>
               <div className="hidden sm:flex items-center gap-1">
                 {navItems.map((item) => (
                   <button
@@ -139,6 +197,20 @@ export default function Dashboard() {
               <button className="w-8 h-8 rounded-full glass flex items-center justify-center hover:bg-[#0E9F6E]/10 transition-colors">
                 <Search className="w-3.5 h-3.5 text-muted-foreground" />
               </button>
+
+              {/* AI Copilot toggle */}
+              <button
+                onClick={() => setShowCopilot(!showCopilot)}
+                className={`w-8 h-8 rounded-full flex items-center justify-center transition-all duration-200 ${
+                  showCopilot
+                    ? "bg-[#0E9F6E] text-white"
+                    : "glass hover:bg-[#0E9F6E]/10"
+                }`}
+              >
+                <MessageSquare className="w-3.5 h-3.5" />
+              </button>
+
+              {/* Notifications */}
               <div className="relative">
                 <button
                   onClick={() => setShowNotifications(!showNotifications)}
@@ -207,6 +279,16 @@ export default function Dashboard() {
                   )}
                 </AnimatePresence>
               </div>
+
+              {/* Settings */}
+              <button
+                onClick={() => setShowSettings(true)}
+                className="w-8 h-8 rounded-full glass flex items-center justify-center hover:bg-[#0E9F6E]/10 transition-colors"
+              >
+                <SettingsIcon className="w-3.5 h-3.5 text-muted-foreground" />
+              </button>
+
+              {/* User Avatar */}
               <div className="w-8 h-8 rounded-full bg-[#0E9F6E]/15 flex items-center justify-center text-xs font-semibold text-[#0E9F6E]">
                 {user?.name?.charAt(0)?.toUpperCase() || "U"}
               </div>
@@ -356,101 +438,15 @@ export default function Dashboard() {
                   )}
                 </motion.div>
 
-                {/* Side Panel - Notifications */}
+                {/* Side Panel - AI Copilot */}
                 <motion.div
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.5, delay: 0.3 }}
-                  className="glass rounded-3xl p-6"
                 >
-                  <div className="flex items-center justify-between mb-5">
-                    <h2 className="text-sm font-semibold text-foreground">Activity</h2>
-                    <span className="text-[10px] text-muted-foreground">
-                      {(notificationsData ?? []).length} items
-                    </span>
-                  </div>
-
-                  {(notificationsData ?? []).length === 0 ? (
-                    <div className="text-center py-8">
-                      <Bell className="w-8 h-8 text-muted-foreground/20 mx-auto mb-2" />
-                      <p className="text-xs text-muted-foreground/50">No recent activity</p>
-                      <p className="text-[10px] text-muted-foreground/30 mt-1">
-                        Create a project to get started
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="space-y-1">
-                      {(notificationsData ?? []).slice(0, 5).map((n) => (
-                        <div
-                          key={n._id}
-                          className="flex items-start gap-3 px-3 py-2.5 rounded-xl hover:bg-white/40 transition-colors"
-                        >
-                          {n.type === "risk_alert" || n.type === "dependency_warning" ? (
-                            <AlertCircle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
-                          ) : n.type === "deadline" ? (
-                            <Clock className="w-4 h-4 text-orange-400 shrink-0 mt-0.5" />
-                          ) : (
-                            <CheckCircle2 className="w-4 h-4 text-[#0E9F6E] shrink-0 mt-0.5" />
-                          )}
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm text-foreground/80 truncate">{n.title}</p>
-                            <p className="text-[10px] text-muted-foreground/50 mt-0.5">
-                              {new Date(n.createdAt).toLocaleDateString()}
-                            </p>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {/* AI Suggestion */}
-                  <div className="mt-4 pt-4 border-t border-border/40">
-                    <div className="glass rounded-xl p-3 flex items-start gap-2.5">
-                      <Sparkles className="w-3.5 h-3.5 text-[#0E9F6E] shrink-0 mt-0.5" />
-                      <p className="text-[11px] text-muted-foreground/70 leading-relaxed">
-                        {projects && projects.length > 0
-                          ? `AI is analyzing ${projects.length} project${projects.length > 1 ? "s" : ""} for insights`
-                          : "Create your first project to unlock AI insights"}
-                      </p>
-                    </div>
-                  </div>
+                  <AICopilot />
                 </motion.div>
               </div>
-
-              {/* AI Copilot Quick Actions */}
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.5, delay: 0.4 }}
-                className="mt-6 glass rounded-3xl p-6"
-              >
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="w-8 h-8 rounded-lg bg-[#0E9F6E]/10 flex items-center justify-center">
-                    <Sparkles className="w-4 h-4 text-[#0E9F6E]" />
-                  </div>
-                  <div>
-                    <h2 className="text-sm font-semibold text-foreground">AI Copilot</h2>
-                    <p className="text-[11px] text-muted-foreground">
-                      Ask KORTEX anything about your projects
-                    </p>
-                  </div>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {[
-                    "Create a new sprint plan",
-                    "Analyze project risks",
-                    "Generate release notes",
-                    "Summarize recent activity",
-                  ].map((suggestion, i) => (
-                    <button
-                      key={i}
-                      className="px-3.5 py-2 rounded-full text-xs text-muted-foreground glass hover:bg-[#0E9F6E]/10 hover:text-[#0E9F6E] transition-all duration-200"
-                    >
-                      {suggestion}
-                    </button>
-                  ))}
-                </div>
-              </motion.div>
             </motion.div>
           )}
 
@@ -575,6 +571,43 @@ export default function Dashboard() {
         open={showNewProject}
         onOpenChange={setShowNewProject}
       />
+
+      {/* AI Copilot Overlay */}
+      <AnimatePresence>
+        {showCopilot && !selectedProjectId && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4"
+            onClick={() => setShowCopilot(false)}
+          >
+            <div onClick={(e) => e.stopPropagation()} className="w-full max-w-lg">
+              <AICopilot
+                onClose={() => setShowCopilot(false)}
+                expanded
+              />
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Settings Overlay */}
+      <AnimatePresence>
+        {showSettings && !selectedProjectId && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4"
+            onClick={() => setShowSettings(false)}
+          >
+            <div onClick={(e) => e.stopPropagation()} className="w-full max-w-3xl">
+              <Settings onClose={() => setShowSettings(false)} />
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
