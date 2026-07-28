@@ -274,11 +274,13 @@ export const createConversation = mutation({
  * This is called by sendMessage before generating any response.
  * The agent NEVER answers without this context.
  */
+ 
 async function gatherWorkspaceContext(
   ctx: any,
   userId: any,
   projectId?: string
 ) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const context: any = {
     projectName: undefined,
     projectDescription: undefined,
@@ -491,6 +493,7 @@ function detectIntent(q: string): string {
 function generateSmartResponse(
   intent: string,
   q: string,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   ctx: any
 ): string {
   const nl = (...lines: string[]) => lines.filter(Boolean).join("\n");

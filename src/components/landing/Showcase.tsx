@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { Kanban, Activity, BarChart3, Calendar, Brain, Users, CheckCircle2, AlertCircle, Sparkles } from "lucide-react";
+import { Kanban, BarChart3, Brain, Users, CheckCircle2, AlertCircle, Sparkles } from "lucide-react";
 
 export default function Showcase() {
   return (

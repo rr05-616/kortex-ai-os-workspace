@@ -60,7 +60,7 @@ export default function ProjectDetail({ projectId, onBack }: ProjectDetailProps)
 
   const handleStatusChange = async (taskId: Id<"tasks">, newStatus: string) => {
     try {
-      await updateTask({ taskId, status: newStatus as any });
+      await updateTask({ taskId, status: newStatus as "backlog" | "todo" | "in_progress" | "in_review" | "done" | "cancelled" });
     } catch (err) {
       console.error("Failed to update task:", err);
     }

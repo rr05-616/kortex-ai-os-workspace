@@ -4,10 +4,10 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  Sparkles, Send, X, Bot, CheckCircle2, Search, Brain,
+  Sparkles, X, Bot, CheckCircle2, Search, Brain,
   Database, Activity, AlertTriangle, Lightbulb, TrendingUp,
-  Clock, Target, Zap, Loader2, MessageSquare, ChevronDown,
-  RefreshCw, ArrowUp, Globe, FileText, GitBranch, BarChart3,
+  Clock, Target, Zap, Loader2, MessageSquare,
+  ArrowUp, Globe, GitBranch, BarChart3,
 } from "lucide-react";
 
 // ─── TYPES ───────────────────────────────────────────────────────────────────
@@ -355,9 +355,7 @@ export default function AICopilot({
     conversationIdRef.current = conversationId;
   }, [conversationId]);
 
-  useEffect(() => {
-    if (expanded) setChatOpen(true);
-  }, [expanded]);
+
 
   // Auto-scroll
   useEffect(() => {
