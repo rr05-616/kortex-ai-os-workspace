@@ -46,6 +46,9 @@ interface ScanResult {
     fileStructure: string[];
     dependencies: string[];
     topics: string[];
+    license?: string;
+    openIssues?: number;
+    lastPush?: string;
   };
   analysis: {
     projectType: string;
@@ -53,17 +56,31 @@ interface ScanResult {
     keyFeatures: string[];
     missingFeatures: string[];
     architecture: string;
+    technologies?: { languages: string[]; frameworks: string[]; databases: string[]; cloud: string[]; ai: string[]; testing: string[]; devops: string[]; packageManagers: string[] };
+    structure?: Record<string, unknown>;
   };
   scores: {
     overall: number;
     codeQuality: number;
-    uiUx: number;
+    architecture?: number;
     performance: number;
     security: number;
     documentation: number;
-    aiReadiness: number;
+    testing?: number;
     devOps: number;
-    productQuality: number;
+    maintainability?: number;
+    scalability?: number;
+    uiUx?: number;
+    aiReadiness?: number;
+    productQuality?: number;
+  };
+  evidence?: {
+    strengths: string[];
+    weaknesses: string[];
+    evidence: Record<string, { positive: string[]; negative: string[] }>;
+    quickWins: string[];
+    longTermImprovements: string[];
+    risks: string[];
   };
   recommendations: {
     immediate: string[];
@@ -71,6 +88,7 @@ interface ScanResult {
     futureRoadmap: string[];
     strengths: string[];
     weaknesses: string[];
+    risks?: string[];
     riskLevel: string;
     developmentStage: string;
     technicalDebt: string;
@@ -389,9 +407,11 @@ export default function ImportProjectDialog({ open, onOpenChange }: ImportProjec
               {/* Score Breakdown */}
               <div className="space-y-2">
                 <h4 className="text-[10px] font-semibold text-[rgba(232,245,238,0.3)] uppercase tracking-wider">Score Breakdown</h4>
-                {Object.entries(scoreLabels).map(([key, info]) => (
-                  <ScoreBar key={key} score={result.scores[key as keyof typeof result.scores]} label={info.label} weight={info.weight} icon={info.icon} />
-                ))}
+                {Object.entries(scoreLabels).map(([key, info]) => {
+                  const val = result.scores[key as keyof typeof result.scores];
+                  if (val === undefined) return null;
+                  return <ScoreBar key={key} score={val} label={info.label} weight={info.weight} icon={info.icon} />;
+                })}
               </div>
 
               {/* Strengths & Weaknesses */}

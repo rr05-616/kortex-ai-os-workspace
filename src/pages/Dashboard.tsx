@@ -59,6 +59,18 @@ export default function Dashboard() {
   const notificationsData = useQuery(api.notifications.recent, { limit: 10 });
   const unreadCount = useQuery(api.notifications.unreadCount, {});
   const markAllRead = useMutation(api.notifications.markAllRead);
+  const deleteProject = useMutation(api.projects.remove);
+
+  const handleDeleteProject = async (projectId: string) => {
+    try {
+      if (selectedProjectId === projectId) {
+        setSelectedProjectId(null);
+      }
+      await deleteProject({ projectId: projectId as Id<"projects"> });
+    } catch (err) {
+      console.error("Failed to delete project:", err);
+    }
+  };
 
   const handleSignOut = async () => {
     await signOut();
@@ -292,7 +304,7 @@ export default function Dashboard() {
                   ) : (
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       {projects.slice(0, 4).map((project, i) => (
-                        <ProjectCard key={project._id} project={project} index={i} onClick={() => setSelectedProjectId(project._id)} />
+                        <ProjectCard key={project._id} project={project} index={i} onClick={() => setSelectedProjectId(project._id)} onDelete={handleDeleteProject} />
                       ))}
                     </div>
                   )}
@@ -324,7 +336,7 @@ export default function Dashboard() {
                     <div className="animate-pulse text-xs text-[rgba(232,245,238,0.25)]">Loading projects...</div>
                   </div>
                 ) : projects.map((project, i) => (
-                  <ProjectCard key={project._id} project={project} index={i + 1} onClick={() => setSelectedProjectId(project._id)} />
+                  <ProjectCard key={project._id} project={project} index={i + 1} onClick={() => setSelectedProjectId(project._id)} onDelete={handleDeleteProject} />
                 ))}
               </div>
             </motion.div>
