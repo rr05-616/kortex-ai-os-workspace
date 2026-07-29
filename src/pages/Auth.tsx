@@ -190,10 +190,12 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
       nextInput?.focus();
     }
     if (newOtp.length === 6 && val) {
-      setTimeout(() => {
-        const form = e.currentTarget.closest("form");
-        form?.requestSubmit();
-      }, 100);
+      const form = e.currentTarget?.closest("form");
+      if (form) {
+        setTimeout(() => {
+          form.requestSubmit();
+        }, 100);
+      }
     }
   }, [otp]);
 
