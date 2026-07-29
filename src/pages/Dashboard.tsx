@@ -10,6 +10,7 @@ import { AICopilot } from "@/components/dashboard/AICopilot";
 import Settings from "@/components/dashboard/Settings";
 import ImportProjectDialog from "@/components/dashboard/ImportProjectDialog";
 import AnalyticsCharts from "@/components/dashboard/AnalyticsCharts";
+import GlassCard from "@/components/ui/glass-card";
 import logo from "@/assets/logo.svg";
 import {
   LogOut,
