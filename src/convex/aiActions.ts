@@ -861,9 +861,10 @@ function generateReasonedResponse(
   const blockedTasks = ctx.tasks.filter(t => t.status === "blocked" || (t.aiRiskScore ?? 0) > 0.7);
   const overdueTasks = ctx.tasks.filter(t => t.dueDate && t.dueDate < Date.now() && t.status !== "done");
   // For follow-ups, always reference previous context
-  const contextPrefix = isFollowUp && memory.lastTopic
+  const _contextPrefix = isFollowUp && memory.lastTopic
     ? `Continuing our discussion about ${memory.lastTopic}:\n\n`
     : "";
+  void _contextPrefix; // available for future use when follow-ups need explicit context
 
   // Helper to vary opening phrases based on response count to reduce repetition
   const openers = [
