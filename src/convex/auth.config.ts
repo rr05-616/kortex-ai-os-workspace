@@ -22,13 +22,6 @@ export default {
       domain: process.env.CONVEX_SITE_URL!,
       applicationID: "convex",
     },
-    // Google OAuth — requires AUTH_GOOGLE_ID and AUTH_GOOGLE_SECRET in
-    // Convex environment variables. If not configured, signIn("google")
-    // will fail gracefully.
-    {
-      domain: "accounts.google.com",
-      applicationID: "google",
-    },
     {
       type: "customJwt",
       issuer: freebuffIssuer,

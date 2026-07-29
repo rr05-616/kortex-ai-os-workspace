@@ -1,15 +1,15 @@
-import { useState, useMemo, useEffect, useCallback } from "react";
-import { useSupabaseQuery, useSupabaseMutation } from "@/hooks/use-supabase";
-import { listProjects, deleteProject as deleteProjectApi, listSprints, createSprint as createSprintApi, updateSprintStatus as updateSprintStatusApi, getRecentNotifications, getUnreadCount, markAllNotificationsRead } from "@/lib/supabase-api";
+import { useEffect, useState, useMemo } from "react";
+import { api } from "@/convex/_generated/api";
+import { useLocalQuery, useLocalMutation } from "@/lib/convex-local";
+import { fetchProjects, fetchTasks, createProject as createProjectApi } from "@/lib/backend";
+import type { Id } from "@/convex/_generated/dataModel";
 import { useAuth } from "@/hooks/use-auth";
 import ProjectCard from "@/components/dashboard/ProjectCard";
 import ProjectDetail from "@/components/dashboard/ProjectDetail";
-import { NewProjectDialog } from "@/components/dashboard/NewProjectDialog";
+import NewProjectDialog from "@/components/dashboard/NewProjectDialog";
 import { AICopilot } from "@/components/dashboard/AICopilot";
 import Settings from "@/components/dashboard/Settings";
 import ImportProjectDialog from "@/components/dashboard/ImportProjectDialog";
-import AnalyticsCharts from "@/components/dashboard/AnalyticsCharts";
-import GlassCard from "@/components/ui/glass-card";
 import logo from "@/assets/logo.svg";
 import {
   LogOut,
@@ -49,29 +49,45 @@ export default function Dashboard() {
   const navigate = useNavigate();
 
   const [currentView, setCurrentView] = useState<View>("dashboard");
-  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const [selectedProjectId, setSelectedProjectId] = useState<Id<"projects"> | null>(null);
   const [showNewProject, setShowNewProject] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [showCopilot, setShowCopilot] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showImport, setShowImport] = useState(false);
 
-  const { data: projects } = useSupabaseQuery(() => listProjects(), [], { realtime: true, channel: "projects" });
-  const { data: notificationsData } = useSupabaseQuery(() => getRecentNotifications(10), []);
-  const { data: unreadCount } = useSupabaseQuery(() => getUnreadCount(), []);
-  const [markAllReadMut] = useSupabaseMutation(markAllNotificationsRead);
-  const [deleteProjectMut] = useSupabaseMutation(deleteProjectApi);
+  const [projects, setProjects] = useState<Array<Record<string, unknown>>>([]);
+  const [tasks, setTasks] = useState<Array<{ id?: string; title: string; status?: string; priority?: string; description?: string }>>([]);
+  const [loadingProjects, setLoadingProjects] = useState(true);
+  const notificationsData = useLocalQuery(api.notifications.recent, { limit: 10 });
+  const unreadCount = useLocalQuery(api.notifications.unreadCount, {});
+  const markAllRead = useLocalMutation(api.notifications.markAllRead);
 
-  const handleDeleteProject = async (projectId: string) => {
-    try {
-      if (selectedProjectId === projectId) {
-        setSelectedProjectId(null);
+  useEffect(() => {
+    let active = true;
+    const loadData = async () => {
+      try {
+        const [projectData, taskData] = await Promise.all([fetchProjects(), fetchTasks()]);
+        if (!active) return;
+        const normalizedProjects = (projectData as Array<{ id?: string; _id?: string; name: string; description?: string; status?: string; health_score?: number; healthScore?: number; priority?: string }>).map((project) => ({
+          _id: project._id ?? project.id ?? `project-${Math.random().toString(36).slice(2)}`,
+          name: project.name,
+          description: project.description ?? "",
+          status: project.status ?? "planning",
+          healthScore: project.healthScore ?? project.health_score ?? 85,
+          priority: project.priority ?? "medium",
+        }));
+        setProjects(normalizedProjects as typeof projects);
+        setTasks(taskData as typeof tasks);
+      } catch (error) {
+        console.error("Failed to load dashboard data", error);
+      } finally {
+        if (active) setLoadingProjects(false);
       }
-      await deleteProjectMut({ projectId });
-    } catch (err) {
-      console.error("Failed to delete project:", err);
-    }
-  };
+    };
+    loadData();
+    return () => { active = false; };
+  }, []);
 
   const handleSignOut = async () => {
     await signOut();
@@ -82,6 +98,7 @@ export default function Dashboard() {
   const activeProjects = projects?.filter((p) => p.status === "active").length ?? 0;
   const planningProjects = projects?.filter((p) => p.status === "planning").length ?? 0;
   const completedProjects = projects?.filter((p) => p.status === "completed").length ?? 0;
+  const totalTasks = tasks?.length ?? 0;
 
   // Project detail view
   if (selectedProjectId) {
@@ -115,14 +132,14 @@ export default function Dashboard() {
             </div>
           </header>
           <main className="max-w-5xl mx-auto px-4 py-6">
-            <ProjectDetail projectId={selectedProjectId as any} onBack={() => { setSelectedProjectId(null); setCurrentView("projects"); }} />
+            <ProjectDetail projectId={selectedProjectId} onBack={() => { setSelectedProjectId(null); setCurrentView("projects"); }} />
           </main>
         </div>
         <AnimatePresence>
           {showCopilot && (
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 bg-[rgba(0,0,0,0.6)] backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setShowCopilot(false)}>
               <div onClick={(e) => e.stopPropagation()} className="w-full max-w-lg">
-                <AICopilot projectId={selectedProjectId as any} onClose={() => setShowCopilot(false)} expanded />
+                <AICopilot projectId={selectedProjectId} onClose={() => setShowCopilot(false)} expanded />
               </div>
             </motion.div>
           )}
@@ -189,14 +206,14 @@ export default function Dashboard() {
                       className="absolute right-0 mt-2 w-80 glass-strong rounded-2xl p-3 shadow-xl z-50 max-h-96 overflow-y-auto">
                       <div className="flex items-center justify-between mb-3 px-1">
                         <span className="text-xs font-semibold text-[#E8F5EE]">Notifications</span>
-                        <button onClick={() => markAllReadMut({} as never)} className="text-[10px] text-[#0E9F6E] hover:underline">Mark all read</button>
+                        <button onClick={() => markAllRead()} className="text-[10px] text-[#0E9F6E] hover:underline">Mark all read</button>
                       </div>
                       {(notificationsData ?? []).length === 0 ? (
                         <p className="text-xs text-[rgba(232,245,238,0.25)] text-center py-6">No notifications yet</p>
                       ) : (
                         <div className="space-y-1">
                           {(notificationsData ?? []).map((n) => (
-                            <div key={n.id} className={`flex items-start gap-2.5 px-3 py-2.5 rounded-xl transition-colors ${!n.is_read ? "bg-[rgba(14,159,110,0.05)]" : "hover:bg-[rgba(255,255,255,0.02)]"}`}>
+                            <div key={n._id} className={`flex items-start gap-2.5 px-3 py-2.5 rounded-xl transition-colors ${!n.read ? "bg-[rgba(14,159,110,0.05)]" : "hover:bg-[rgba(255,255,255,0.02)]"}`}>
                               <div className="mt-0.5">
                                 {n.type === "risk_alert" || n.type === "dependency_warning" ? <AlertCircle className="w-3.5 h-3.5 text-amber-500" /> : <div className="w-3.5 h-3.5 rounded-full bg-[rgba(14,159,110,0.2)]" />}
                               </div>
@@ -305,7 +322,7 @@ export default function Dashboard() {
                   ) : (
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       {projects.slice(0, 4).map((project, i) => (
-                        <ProjectCard key={project.id} project={project} index={i} onClick={() => setSelectedProjectId(project.id)} onDelete={handleDeleteProject} />
+                        <ProjectCard key={project._id} project={project} index={i} onClick={() => setSelectedProjectId(project._id)} />
                       ))}
                     </div>
                   )}
@@ -337,7 +354,7 @@ export default function Dashboard() {
                     <div className="animate-pulse text-xs text-[rgba(232,245,238,0.25)]">Loading projects...</div>
                   </div>
                 ) : projects.map((project, i) => (
-                  <ProjectCard key={project.id} project={project} index={i + 1} onClick={() => setSelectedProjectId(project.id)} onDelete={handleDeleteProject} />
+                  <ProjectCard key={project._id} project={project} index={i + 1} onClick={() => setSelectedProjectId(project._id)} />
                 ))}
               </div>
             </motion.div>
@@ -345,12 +362,12 @@ export default function Dashboard() {
 
           {/* SPRINTS VIEW — fully functional with real project data */}
           {currentView === "sprints" && (
-            <SprintsView projects={projects} onSelectProject={(id: string) => setSelectedProjectId(id)} />
+            <SprintsView projects={projects} onSelectProject={(id) => setSelectedProjectId(id)} />
           )}
 
           {/* ANALYTICS VIEW — fully functional with real computed metrics */}
           {currentView === "analytics" && (
-            <AnalyticsView projects={projects ?? []} />
+            <AnalyticsView projects={projects} />
           )}
         </main>
       </div>
@@ -386,32 +403,26 @@ export default function Dashboard() {
 // ─── SPRINTS VIEW (functional with real project data) ───────────────────────
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function SprintsView({ projects, onSelectProject }: { projects: any[] | undefined; onSelectProject: (id: string) => void }) {
-  const [selectedProject, setSelectedProject] = useState<string | null>(null);
-  const [sprints, setSprints] = useState<any[]>([]);
+function SprintsView({ projects, onSelectProject }: { projects: any[] | undefined; onSelectProject: (id: Id<"projects">) => void }) {
+  const [selectedProject, setSelectedProject] = useState<Id<"projects"> | null>(null);
+  const sprints = useQuery(api.sprints.list, selectedProject ? { projectId: selectedProject } : "skip");
+  const createSprint = useMutation(api.sprints.create);
+  const updateSprintStatus = useMutation(api.sprints.updateStatus);
   const [showCreate, setShowCreate] = useState(false);
-
-  useEffect(() => {
-    if (selectedProject) {
-      listSprints(selectedProject).then(setSprints).catch(() => setSprints([]));
-    }
-  }, [selectedProject]);
   const [sprintName, setSprintName] = useState("");
   const [sprintGoal, setSprintGoal] = useState("");
 
   const handleCreateSprint = async () => {
     if (!selectedProject || !sprintName.trim()) return;
     const now = Date.now();
-    const duration = 14 * 24 * 60 * 60 * 1000;
-    await createSprintApi({
-      project_id: selectedProject,
+    const duration = 14 * 24 * 60 * 60 * 1000; // 14 days default
+    await createSprint({
+      projectId: selectedProject,
       name: sprintName.trim(),
       goal: sprintGoal.trim() || undefined,
-      start_date: now,
-      end_date: now + duration,
+      startDate: now,
+      endDate: now + duration,
     });
-    const updated = await listSprints(selectedProject);
-    setSprints(updated);
     setSprintName("");
     setSprintGoal("");
     setShowCreate(false);
@@ -431,8 +442,8 @@ function SprintsView({ projects, onSelectProject }: { projects: any[] | undefine
           <div className="flex flex-wrap gap-2 mb-4">
             <span className="text-xs text-[rgba(232,245,238,0.3)] self-center mr-2">Select project:</span>
             {projects.map((p) => (
-              <button key={p.id} onClick={() => setSelectedProject(p.id)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${selectedProject === p.id ? "bg-[rgba(14,159,110,0.15)] text-[#0E9F6E] border border-[rgba(14,159,110,0.25)]" : "glass text-[rgba(232,245,238,0.4)] hover:text-[#E8F5EE]"}`}>
+              <button key={p._id} onClick={() => setSelectedProject(p._id)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${selectedProject === p._id ? "bg-[rgba(14,159,110,0.15)] text-[#0E9F6E] border border-[rgba(14,159,110,0.25)]" : "glass text-[rgba(232,245,238,0.4)] hover:text-[#E8F5EE]"}`}>
                 {p.name}
               </button>
             ))}
@@ -466,7 +477,9 @@ function SprintsView({ projects, onSelectProject }: { projects: any[] | undefine
               </AnimatePresence>
 
               {/* Sprint list */}
-              {sprints.length === 0 ? (
+              {sprints === undefined ? (
+                <div className="text-center py-8"><div className="animate-pulse text-xs text-[rgba(232,245,238,0.25)]">Loading sprints...</div></div>
+              ) : sprints.length === 0 ? (
                 <div className="glass-card rounded-xl p-8 text-center">
                   <Timer className="w-10 h-10 text-[rgba(232,245,238,0.1)] mx-auto mb-3" />
                   <p className="text-sm text-[rgba(232,245,238,0.25)]">No sprints yet. Create your first sprint to start planning.</p>
@@ -481,7 +494,7 @@ function SprintsView({ projects, onSelectProject }: { projects: any[] | undefine
                       completed: "text-blue-400 bg-blue-500/10",
                     };
                     return (
-                      <motion.div key={sprint.id} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}
+                      <motion.div key={sprint._id} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}
                         className="glass-card rounded-xl p-5">
                         <div className="flex items-center justify-between mb-3">
                           <h3 className="text-sm font-semibold text-[#E8F5EE]">{sprint.name}</h3>
@@ -499,14 +512,14 @@ function SprintsView({ projects, onSelectProject }: { projects: any[] | undefine
                         </div>
                         <div className="flex gap-1.5">
                           {sprint.status === "planning" && (
-                            <button onClick={async () => { await updateSprintStatusApi(sprint.id, 'active'); const u = await listSprints(selectedProject); setSprints(u); }}
+                            <button onClick={() => updateSprintStatus({ sprintId: sprint._id, status: "active" })}
                               className="btn-liquid btn-liquid-solid h-7 px-2.5 text-[10px] flex-1">Start Sprint</button>
                           )}
                           {sprint.status === "active" && (
-                            <button onClick={async () => { await updateSprintStatusApi(sprint.id, 'completed'); const u = await listSprints(selectedProject); setSprints(u); }}
+                            <button onClick={() => updateSprintStatus({ sprintId: sprint._id, status: "completed" })}
                               className="btn-liquid h-7 px-2.5 text-[10px] flex-1">Complete</button>
                           )}
-                          <button onClick={() => onSelectProject(sprint.project_id ?? '')} className="btn-liquid h-7 px-2.5 text-[10px]">View Project</button>
+                          <button onClick={() => onSelectProject(sprint.projectId)} className="btn-liquid h-7 px-2.5 text-[10px]">View Project</button>
                         </div>
                       </motion.div>
                     );
@@ -547,8 +560,8 @@ function AnalyticsView({ projects }: { projects: any[] | undefined }) {
     for (const p of projects) {
       statusBreakdown[p.status as keyof typeof statusBreakdown]++;
       priorityBreakdown[p.priority as keyof typeof priorityBreakdown]++;
-      totalHealth += (p.health_score ?? 85);
-      if (p.sprint_duration) { totalSprintDuration += p.sprint_duration; sprintCount++; }
+      totalHealth += (p.healthScore ?? 85);
+      if (p.sprintDuration) { totalSprintDuration += p.sprintDuration; sprintCount++; }
     }
 
     return {
@@ -648,11 +661,11 @@ function AnalyticsView({ projects }: { projects: any[] | undefined }) {
           <h3 className="text-sm font-semibold text-[#E8F5EE] mb-4">Project Health Overview</h3>
           <div className="space-y-2">
             {projects.map((p) => {
-              const health = p.health_score ?? 85;
+              const health = p.healthScore ?? 85;
               const healthColor = health >= 80 ? "bg-[#0E9F6E]" : health >= 50 ? "bg-amber-400" : "bg-red-400";
               const healthText = health >= 80 ? "text-[#0E9F6E]" : health >= 50 ? "text-amber-400" : "text-red-400";
               return (
-                <div key={p.id} className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-[rgba(255,255,255,0.02)] transition-colors">
+                <div key={p._id} className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-[rgba(255,255,255,0.02)] transition-colors">
                   <div className="flex-1 min-w-0">
                     <p className="text-sm text-[rgba(232,245,238,0.7)] truncate">{p.name}</p>
                     <p className="text-[10px] text-[rgba(232,245,238,0.3)] capitalize">{p.status} · {p.priority}</p>
@@ -667,9 +680,6 @@ function AnalyticsView({ projects }: { projects: any[] | undefined }) {
           </div>
         </motion.div>
       )}
-
-      {/* ── Enhanced Analytics Charts (10 new sections) ── */}
-      <AnalyticsCharts projects={projects} />
     </motion.div>
   );
 }

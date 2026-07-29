@@ -58,7 +58,7 @@ class TaskData(BaseModel):
     title: str
     status: str = "todo"
     priority: str = "medium"
-    description: Optional[str] = ""
+    description: str = ""
     ai_risk_score: float = 0.0
     due_date: Optional[str] = None
     estimated_hours: Optional[float] = None
@@ -71,7 +71,7 @@ class SprintData(BaseModel):
     id: str = ""
     name: str
     status: str = "planning"
-    goal: Optional[str] = ""
+    goal: str = ""
     task_count: int = 0
     completed_tasks: int = 0
     start_date: str = ""
@@ -99,7 +99,7 @@ class AnalysisData(BaseModel):
 class ProjectData(BaseModel):
     id: str = ""
     name: str = ""
-    description: Optional[str] = ""
+    description: str = ""
     status: str = "planning"
     health_score: float = 85.0
     sprint_duration: int = 14

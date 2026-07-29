@@ -1,37 +1,29 @@
-"""Settings API endpoints."""
 from __future__ import annotations
 
 from fastapi import APIRouter
 from pydantic import BaseModel
-from typing import Optional
 
 router = APIRouter(prefix="/api", tags=["settings"])
 
 
-_user_settings: dict = {
-    "theme": "dark",
-    "notifications_enabled": True,
-    "ai_model": "gemini-2.0-flash",
-    "language": "en",
-}
+class SettingsUpdateRequest(BaseModel):
+    default_model: str | None = None
+    enable_streaming: bool | None = None
 
 
 @router.get("/settings")
 async def get_settings():
-    return _user_settings
+    return {
+        "default_model": "gemini-2.0-flash",
+        "enable_streaming": True,
+        "ai_enabled": True,
+    }
 
 
-@router.patch("/settings")
-async def update_settings(body: dict):
-    _user_settings.update(body)
-    return _user_settings
-
-
-@router.get("/settings/profile")
-async def get_profile():
-    return {"name": "User", "email": "", "avatar": ""}
-
-
-@router.patch("/settings/profile")
-async def update_profile(body: dict):
-    return body
+@router.post("/settings")
+async def update_settings(payload: SettingsUpdateRequest):
+    return {
+        "default_model": payload.default_model or "gemini-2.0-flash",
+        "enable_streaming": payload.enable_streaming if payload.enable_streaming is not None else True,
+        "ai_enabled": True,
+    }

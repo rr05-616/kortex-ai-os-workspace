@@ -1,4 +1,38 @@
+# =========================
+# Environment
+# =========================
 .env.local
-node_modules
-dist
-src/convex/_generated
+.env
+.env.*
+
+# =========================
+# Node
+# =========================
+node_modules/
+dist/
+coverage/
+
+# Convex
+src/convex/_generated/
+
+# =========================
+# Python
+# =========================
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.venv/
+venv/
+
+# =========================
+# VS Code
+# =========================
+.vscode/
+
+# =========================
+# OS Files
+# =========================
+.DS_Store
+Thumbs.db

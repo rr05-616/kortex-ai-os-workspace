@@ -1,33 +1,29 @@
-import { useEffect } from "react";
-import { useNavigate, useSearchParams } from "react-router";
 import { useAuth } from "@/hooks/use-auth";
+import { Loader2 } from "lucide-react";
+import type { ReactNode } from "react";
+import { Navigate, useLocation } from "react-router";
 
-interface RequireAuthProps {
-  children: React.ReactNode;
-}
-
-export function RequireAuth({ children }: RequireAuthProps) {
-  const { isAuthenticated, isLoading } = useAuth();
-  const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
-
-  useEffect(() => {
-    if (isLoading) return;
-    if (!isAuthenticated) {
-      const returnTo = searchParams.get("returnTo") || "/dashboard";
-      navigate(`/auth?returnTo=${encodeURIComponent(returnTo)}`, { replace: true });
-    }
-  }, [isAuthenticated, isLoading, navigate, searchParams]);
+export function RequireAuth({ children }: { children: ReactNode }) {
+  const { isLoading, isAuthenticated } = useAuth();
+  const location = useLocation();
 
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-pulse text-muted-foreground">Loading...</div>
-      </div>
+      <main className="flex min-h-screen items-center justify-center bg-background">
+        <Loader2 className="size-6 animate-spin text-muted-foreground" />
+      </main>
     );
   }
 
-  if (!isAuthenticated) return null;
+  if (!isAuthenticated) {
+    const returnTo = `${location.pathname}${location.search}`;
+    return (
+      <Navigate
+        to={`/auth?returnTo=${encodeURIComponent(returnTo)}`}
+        replace
+      />
+    );
+  }
 
-  return <>{children}</>;
+  return children;
 }

@@ -6,6 +6,22 @@
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:8000";
 const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY || "";
 
+export interface ProjectSummary {
+  id: string;
+  name: string;
+  description?: string;
+  status?: string;
+  health_score?: number;
+}
+
+export interface TaskSummary {
+  id: string;
+  title: string;
+  description?: string;
+  status?: string;
+  priority?: string;
+}
+
 export interface ChatRequest {
   message: string;
   project_id?: string;
@@ -63,6 +79,46 @@ export async function checkBackendHealth(): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+export async function fetchProjects(): Promise<ProjectSummary[]> {
+  const response = await fetch(`${BACKEND_URL}/api/projects`);
+  if (!response.ok) {
+    throw new Error(`Failed to load projects: ${response.status}`);
+  }
+  return response.json();
+}
+
+export async function fetchTasks(): Promise<TaskSummary[]> {
+  const response = await fetch(`${BACKEND_URL}/api/tasks`);
+  if (!response.ok) {
+    throw new Error(`Failed to load tasks: ${response.status}`);
+  }
+  return response.json();
+}
+
+export async function createProject(payload: { name: string; description?: string }) {
+  const response = await fetch(`${BACKEND_URL}/api/projects`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to create project: ${response.status}`);
+  }
+  return response.json();
+}
+
+export async function createTask(payload: { title: string; description?: string; status?: string; priority?: string }) {
+  const response = await fetch(`${BACKEND_URL}/api/tasks`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to create task: ${response.status}`);
+  }
+  return response.json();
 }
 
 /**

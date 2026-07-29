@@ -1,116 +1,104 @@
-import { useState, useEffect, useCallback } from "react";
-import { supabase } from "@/lib/supabase";
-import type { User } from "@supabase/supabase-js";
+import { useEffect, useState } from "react";
 
-interface AuthUser {
-  id: string;
-  name?: string | null;
-  email?: string | null;
-  phone?: string | null;
-  image?: string | null;
-  role?: string | null;
-  isAnonymous?: boolean;
+type AuthUser = {
+  _id?: string;
+  name?: string;
+  email?: string;
+  image?: string;
+};
+
+const STORAGE_KEY = "kortex-local-auth";
+
+function isConvexConfigured() {
+  const value = (import.meta.env.VITE_CONVEX_URL as string | undefined | null)?.trim() || "";
+  return Boolean(value && !value.includes("example"));
 }
 
-interface UseAuthReturn {
-  user: AuthUser | null;
-  isAuthenticated: boolean;
-  isLoading: boolean;
-  signInAsGuest: () => Promise<void>;
-  signInWithOtp: (email: string) => Promise<void>;
-  verifyOtp: (email: string, token: string) => Promise<void>;
-  signOut: () => Promise<void>;
+function getStoredSession() {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  try {
+    return JSON.parse(window.localStorage.getItem(STORAGE_KEY) || "null") as { user?: AuthUser } | null;
+  } catch {
+    return null;
+  }
 }
 
-export function useAuth(): UseAuthReturn {
-  const [user, setUser] = useState<AuthUser | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-
-  const loadProfile = useCallback(async (authUser: User) => {
-    const { data: profile } = await supabase
-      .from("users")
-      .select("*")
-      .eq("id", authUser.id)
-      .single();
-
-    if (profile) {
-      setUser({
-        id: profile.id,
-        name: profile.name,
-        email: profile.email,
-        phone: profile.phone,
-        image: profile.image,
-        role: profile.role,
-        isAnonymous: profile.is_anonymous,
-      });
-    } else {
-      // Profile not yet created (trigger may be slow), use auth metadata
-      setUser({
-        id: authUser.id,
-        name: authUser.user_metadata?.name ?? authUser.user_metadata?.full_name,
-        email: authUser.email,
-        phone: authUser.phone,
-        image: authUser.user_metadata?.avatar_url ?? authUser.user_metadata?.picture,
-        isAnonymous: authUser.user_metadata?.is_anonymous ?? false,
-      });
+function deriveUser(provider: string, data: unknown): AuthUser {
+  if (data instanceof FormData) {
+    const email = (data.get("email") as string | null)?.trim();
+    if (email) {
+      return { name: email.split("@")[0], email };
     }
-  }, []);
+  }
+
+  if (typeof data === "object" && data && "email" in data) {
+    const email = String((data as { email?: string }).email || "").trim();
+    if (email) {
+      return { name: email.split("@")[0], email };
+    }
+  }
+
+  if (provider === "anonymous") {
+    return { name: "Guest User", email: "guest@kortex.local" };
+  }
+
+  return { name: "Local User", email: "local@kortex.local" };
+}
+
+export function useAuth() {
+  const [isLoading, setIsLoading] = useState(true);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [user, setUser] = useState<AuthUser | null>(null);
 
   useEffect(() => {
-    let mounted = true;
-
-    const init = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (mounted && session?.user) {
-        await loadProfile(session.user);
-      }
-      if (mounted) setIsLoading(false);
-    };
-
-    init();
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      if (session?.user) {
-        await loadProfile(session.user);
-      } else {
-        setUser(null);
-      }
+    if (isConvexConfigured()) {
       setIsLoading(false);
-    });
+      return;
+    }
 
-    return () => {
-      mounted = false;
-      subscription.unsubscribe();
-    };
-  }, [loadProfile]);
+    const stored = getStoredSession();
+    if (stored?.user) {
+      setUser(stored.user);
+      setIsAuthenticated(true);
+    } else {
+      setUser(null);
+      setIsAuthenticated(false);
+    }
 
-  const signInAsGuest = useCallback(async () => {
-    const { error } = await supabase.auth.signInAnonymously();
-    if (error) throw error;
+    setIsLoading(false);
   }, []);
 
-  const signInWithOtp = useCallback(async (email: string) => {
-    const { error } = await supabase.auth.signInWithOtp({ email });
-    if (error) throw error;
-  }, []);
+  const signIn = async (provider: string, data?: unknown) => {
+    const nextUser = deriveUser(provider, data);
+    const session = { user: nextUser };
 
-  const verifyOtp = useCallback(async (email: string, token: string) => {
-    const { error } = await supabase.auth.verifyOtp({ email, token, type: "email" });
-    if (error) throw error;
-  }, []);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(session));
+    }
 
-  const signOut = useCallback(async () => {
-    await supabase.auth.signOut();
+    setUser(nextUser);
+    setIsAuthenticated(true);
+    setIsLoading(false);
+  };
+
+  const signOut = async () => {
+    if (typeof window !== "undefined") {
+      window.localStorage.removeItem(STORAGE_KEY);
+    }
+
     setUser(null);
-  }, []);
+    setIsAuthenticated(false);
+    setIsLoading(false);
+  };
 
   return {
-    user,
-    isAuthenticated: !!user,
     isLoading,
-    signInAsGuest,
-    signInWithOtp,
-    verifyOtp,
+    isAuthenticated,
+    user,
+    signIn,
     signOut,
   };
 }

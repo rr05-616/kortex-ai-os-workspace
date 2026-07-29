@@ -111,24 +111,18 @@ interface ConversationMemory {
   currentGoal?: string;
   discussedTasks: string[];
   discussedSprints: string[];
-  discussedRecommendations: string[];
-  previousResponse?: string;
-  responseCount: number;
 }
 
 function buildConversationMemory(history: Array<{ role: string; content: string }>): ConversationMemory {
-  const memory: ConversationMemory = { discussedTasks: [], discussedSprints: [], discussedRecommendations: [], responseCount: 0 };
+  const memory: ConversationMemory = { discussedTasks: [], discussedSprints: [] };
   
-  // Get last 8 assistant responses to extract memory
+  // Get last 5 assistant responses to extract memory
   const assistantResponses = history
     .filter(m => m.role === "assistant")
-    .slice(-8);
-
-  memory.responseCount = assistantResponses.length;
+    .slice(-5);
 
   for (const response of assistantResponses) {
     const content = response.content;
-    memory.previousResponse = content;
     
     // Extract task names mentioned
     const taskMatches = content.match(/\*\*"([^"]+)"\*\*/g);
@@ -147,28 +141,6 @@ function buildConversationMemory(history: Array<{ role: string; content: string 
       for (const match of sprintMatches) {
         if (!memory.discussedSprints.includes(match)) {
           memory.discussedSprints.push(match);
-        }
-      }
-    }
-
-    // Extract previously given recommendations to avoid repeating them
-    const recMatches = content.match(/\*\*My recommendation:\*\*\n([\s\S]*?)(?=\n\*\*|$)/g);
-    if (recMatches) {
-      for (const rec of recMatches) {
-        const normalized = rec.replace(/\*\*My recommendation:\*\*/g, '').trim().toLowerCase().slice(0, 100);
-        if (normalized && !memory.discussedRecommendations.some(r => r.includes(normalized.slice(0, 50)))) {
-          memory.discussedRecommendations.push(normalized);
-        }
-      }
-    }
-
-    // Also extract numbered recommendations
-    const numRecs = content.match(/^\d+\.\s+(.+)$/gm);
-    if (numRecs) {
-      for (const rec of numRecs) {
-        const normalized = rec.toLowerCase().replace(/^\d+\.\s+/, '').trim().slice(0, 100);
-        if (normalized && !memory.discussedRecommendations.some(r => r.includes(normalized.slice(0, 50)))) {
-          memory.discussedRecommendations.push(normalized);
         }
       }
     }
@@ -264,11 +236,13 @@ function detectFollowUp(
     }
   }
 
-  // Weak follow-ups (very short messages < 8 words that clearly reference previous context)
-  if (wordCount <= 8) {
+  // Weak follow-ups (short messages < 15 words that reference previous context)
+  if (wordCount <= 15) {
+    // Pronouns and references
     const referencePatterns = [
+      "it", "this", "that", "them", "those", "these",
       "the task", "the sprint", "the project", "the issue",
-      "can you", "could you", "would you",
+      "can you", "could you", "would you", "please",
     ];
 
     if (referencePatterns.some(p => msg.startsWith(p) || msg === p)) {
@@ -357,6 +331,7 @@ function analyzeWorkspace(ctx: ContextData, intent: Intent): ReasoningResult {
   const overdueTasks = ctx.tasks.filter(t => t.dueDate && t.dueDate < Date.now() && t.status !== "done");
   const inProgressTasks = ctx.tasks.filter(t => t.status === "in_progress");
   const readyTasks = ctx.tasks.filter(t => t.status === "todo" || t.status === "backlog");
+
 
   // Intent-specific reasoning
   switch (intent) {
@@ -466,7 +441,7 @@ function analyzeWorkspace(ctx: ContextData, intent: Intent): ReasoningResult {
 
     case "risk": {
       if (blockedTasks.length === 0 && overdueTasks.length === 0) {
-        result.primaryInsight = "All clear! No high-risk or overdue tasks detected.";
+        result.primaryInsight = "✅ All clear! No high-risk or overdue tasks detected.";
         result.supportingEvidence = ["No blocked tasks", "No overdue tasks", "Workspace is healthy"];
         result.recommendations = [
           "Continue monitoring task statuses",
@@ -606,8 +581,6 @@ function buildAgentSystemPrompt(ctx: ContextData, memory: ConversationMemory): s
     memory.discussedTasks.length > 0 ? `Tasks discussed: ${memory.discussedTasks.slice(0, 5).join(", ")}` : "",
     memory.discussedSprints.length > 0 ? `Sprints discussed: ${memory.discussedSprints.join(", ")}` : "",
     memory.lastAction ? `Last action type: ${memory.lastAction}` : "",
-    `Previous responses in conversation: ${memory.responseCount}`,
-    memory.discussedRecommendations.length > 0 ? `ALREADY GIVEN recommendations (DO NOT REPEAT):\n${memory.discussedRecommendations.slice(-6).map((r, i) => `  ${i + 1}. ${r}`).join("\n")}` : "",
   );
 
   return nl(
@@ -626,22 +599,12 @@ function buildAgentSystemPrompt(ctx: ContextData, memory: ConversationMemory): s
     "9. Always include: WHAT I found → WHY it matters → WHAT to do next",
     "10. Every response must be specific, actionable, and grounded in real data.",
     "",
-    "═══ ANTI-REPETITION RULES ═══",
-    "- NEVER repeat the same recommendation you already gave in this conversation.",
-    "- Check CONVERSATION MEMORY — if a recommendation is listed in discussedRecommendations, do NOT repeat it.",
-    "- Vary your response structure: sometimes lead with data, sometimes with a question, sometimes with a direct action.",
-    "- Do NOT use the same opening phrases repeatedly (e.g. don't always start with 'Based on your workspace').",
-    "- If you already analyzed something, go DEEPER — new insights, trade-offs, alternatives — don't surface the same points.",
-    "- Each response should feel like a fresh perspective, not a recitation of the same data.",
-    "- NEVER repeat the exact same numbers/stats unless they have genuinely changed.",
-    "",
     "═══ RESPONSE STYLE ═══",
     "- Use markdown: bold for key terms, bullets for lists, numbered steps for plans",
     "- Reference specific task names, numbers, statuses, and dates from the data",
-    "- Vary the response format — sometimes use a direct answer, sometimes a comparison, sometimes a ranked list",
+    "- Every response must include: what I found → my analysis → recommendation → next action",
     "- Tone: Professional, concise, technical, actionable — like a senior engineering manager",
     "- Maximum 5-8 sentences unless the user asks for detail",
-    "- Do NOT always follow the same template. Mix: direct answers, trade-off analysis, ranked lists, one-liners, etc.",
     "",
     "═══ USER ═══",
     `Name: ${ctx.userName ?? "User"}`,
@@ -856,23 +819,10 @@ function generateReasonedResponse(
   isFollowUp: boolean,
   memory: ConversationMemory
 ): string {
-  // Compute derived task lists used across multiple intents
-  const criticalTasks = ctx.tasks.filter(t => t.priority === "critical" || t.priority === "high");
-  const blockedTasks = ctx.tasks.filter(t => t.status === "blocked" || (t.aiRiskScore ?? 0) > 0.7);
-  const overdueTasks = ctx.tasks.filter(t => t.dueDate && t.dueDate < Date.now() && t.status !== "done");
   // For follow-ups, always reference previous context
-  const _contextPrefix = isFollowUp && memory.lastTopic
+  const contextPrefix = isFollowUp && memory.lastTopic
     ? `Continuing our discussion about ${memory.lastTopic}:\n\n`
     : "";
-  void _contextPrefix; // available for future use when follow-ups need explicit context
-
-  // Helper to vary opening phrases based on response count to reduce repetition
-  const openers = [
-    "Here's what I see:", "Looking at the data:", "My analysis:",
-    "After reviewing your workspace:", "From what I can tell:",
-    "Checking the numbers:", "In your current setup:",
-  ];
-  const opener = openers[memory.responseCount % openers.length] || openers[0];
 
   switch (intent) {
     case "greeting": {
@@ -929,161 +879,95 @@ function generateReasonedResponse(
         "Ask me anything — I'll investigate your data and give you specific, actionable answers."
       );
 
-    case "progress": {
-      // Vary response format: sometimes lead with the number, sometimes with a question
-      if (ctx.totalTasks === 0) {
-        return nl(
-          "No tasks yet — your workspace is a blank canvas.",
-          "Create a project and break it into tasks, and I'll start tracking progress for you."
-        );
-      }
-      const healthEmoji = ctx.completionRate >= 70 ? "🟢" : ctx.completionRate >= 40 ? "🟡" : "🔴";
-      if (memory.responseCount % 3 === 0) {
-        // Format: direct data dump
-        return nl(
-          `${healthEmoji} **${ctx.completionRate}%** complete — ${ctx.totalDone}/${ctx.totalTasks} tasks done.`,
-          ctx.totalInProgress > 0 ? `${ctx.totalInProgress} in progress right now.` : "",
-          ctx.totalOverdue > 0 ? `⚠️ ${ctx.totalOverdue} overdue.` : "",
-          "",
-          "What's your next move?"
-        );
-      }
-      if (memory.responseCount % 3 === 1) {
-        // Format: question-led
-        return nl(
-          `Where do things stand? ${healthEmoji}`,
-          "",
-          `**${ctx.completionRate}%** of your ${ctx.totalTasks} tasks are done.`,
-          ctx.totalRisk > 0 ? `**${ctx.totalRisk}** flagged as high-risk — worth tackling soon.` : "No blockers in sight.",
-          ctx.activeSprint ? `Current sprint: **${ctx.activeSprint.name}** — ${ctx.activeSprint.completedTasks}/${ctx.activeSprint.taskCount}.` : "",
-        );
-      }
-      // Format: comparison/balance
-      return nl(
-        `**Task breakdown:** ${ctx.totalDone} done · ${ctx.totalInProgress} active · ${ctx.totalTodo} waiting · ${ctx.totalBacklog} backlog`,
-        "",
-        ctx.completionRate >= 50 ? "You're past the halfway mark — keep the momentum." : "Still building up — focus on finishing started tasks first.",
-        ctx.totalRisk > 0 ? `⚠️ **${ctx.totalRisk}** high-risk items need a look.` : "",
-      );
-    }
-
-    case "suggest": {
-      if (criticalTasks.length > 0) {
-        const topTask = criticalTasks[0];
-        // Check if we already recommended this exact task
-        const alreadyRecommended = memory.discussedRecommendations.some(r => r.includes(topTask.title));
-        if (alreadyRecommended) {
-          // Don't repeat — dig deeper
-          return nl(
-            `We already discussed **"${topTask.title}"** — let me go deeper.`,
-            "",
-            `**Deeper analysis:**`,
-            `• Status: ${topTask.status} | Est: ${topTask.estimatedHours ? topTask.estimatedHours + 'h' : 'unknown'}`,
-            topTask.description ? `• Context: ${topTask.description.slice(0, 120)}` : "",
-            "",
-            "Consider breaking this into smaller subtasks or pairing with another engineer to unblock faster."
-          );
-        }
-        return nl(
-          opener,
-          "",
-          `**"${topTask.title}"** is your highest-priority item right now.`,
-          `It's currently **${topTask.status.replace('_', ' ')}**${topTask.estimatedHours ? ` with ~${topTask.estimatedHours}h estimated` : ''}.`,
-          "",
-          "That's where I'd start."
-        );
-      }
-      if (overdueTasks.length > 0) {
-        return nl(
-          `${overdueTasks.length} overdue task${overdueTasks.length !== 1 ? 's' : ''} need attention:`,
-          "",
-          ...overdueTasks.slice(0, 3).map(t =>
-            `• **"${t.title}"** — due ${new Date(t.dueDate!).toLocaleDateString()}`
-          ),
-          "",
-          "Re-schedule or break these down before they compound."
-        );
-      }
-      // Balanced workspace — give a specific next action
-      const nextTask = ctx.tasks.find(t => t.status === 'todo' || t.status === 'backlog');
-      if (nextTask) {
-        return nl(
-          `Workspace looks balanced. I'd pick up **"${nextTask.title}"** next.`,
-          `Priority: ${nextTask.priority}${nextTask.estimatedHours ? ` · ~${nextTask.estimatedHours}h` : ''}.`,
-        );
-      }
-      return nl(
-        "Everything's in progress or done — nice. Review completed work or set up the next sprint goal."
-      );
-    }
-
-    case "risk": {
-      if (blockedTasks.length === 0 && overdueTasks.length === 0) {
-        return nl(
-          "🟢 All clear — no blocked or overdue tasks.",
-          ctx.totalRisk > 0 ? `There are ${ctx.totalRisk} flagged as high-risk, but none are stuck.` : "Workspace is clean.",
-        );
-      }
-      const allRisk = [...blockedTasks, ...overdueTasks];
-      return nl(
-        `⚠️ **${allRisk.length} task${allRisk.length !== 1 ? 's' : ''} need attention:**`,
-        "",
-        ...allRisk.slice(0, 4).map(t => {
-          const riskPct = t.aiRiskScore ? Math.round(t.aiRiskScore * 100) : null;
-          const overdue = t.dueDate && t.dueDate < Date.now();
-          return `• **"${t.title}"** — ${overdue ? `overdue since ${new Date(t.dueDate!).toLocaleDateString()}` : `risk: ${riskPct ?? 'unknown'}%`}`;
-        }),
-        "",
-        "Start with the one blocking the most other work."
-      );
-    }
-
+    case "progress":
+    case "suggest":
+    case "risk":
     case "sprint": {
-      const readyForSprint = ctx.tasks.filter(t => t.status === "backlog" || t.status === "todo");
-      if (ctx.activeSprint) {
-        return nl(
-          `**${ctx.activeSprint.name}** is running — ${ctx.activeSprint.completedTasks}/${ctx.activeSprint.taskCount} tasks done.`,
-          ctx.activeSprint.goal ? `Goal: "${ctx.activeSprint.goal}"` : "",
-          "",
-          `${readyForSprint.length} tasks are ready if you want to add more to the sprint.`,
-        );
+      const lines: string[] = [contextPrefix];
+      
+      lines.push(`**${reasoning.primaryInsight}**`);
+      
+      if (reasoning.supportingEvidence.length > 0) {
+        lines.push("", "**What I found:**");
+        reasoning.supportingEvidence.forEach(e => lines.push(`• ${e}`));
       }
-      return nl(
-        `No active sprint. **${readyForSprint.length} tasks** are ready for planning.`,
-        "",
-        readyForSprint.length > 0
-          ? `Top candidates: ${readyForSprint.slice(0, 3).map(t => `**"${t.title}"**`).join(', ')}`
-          : "Create some tasks first, then start a sprint.",
-      );
+      
+      if (reasoning.recommendations.length > 0) {
+        lines.push("", "**My recommendation:**");
+        reasoning.recommendations.forEach((r, i) => lines.push(`${i + 1}. ${r}`));
+      }
+      
+      if (reasoning.nextActions.length > 0) {
+        lines.push("", "**Next steps:**");
+        reasoning.nextActions.slice(0, 2).forEach(a => lines.push(`• ${a}`));
+      }
+      
+      return lines.join("\n");
     }
 
     case "architecture": {
       if (ctx.analyses.length > 0) {
         const a = ctx.analyses[0];
         return nl(
-          `**${a.name}** — ${a.architecture}`,
-          `Score: **${a.score}/100** · Stage: ${a.stage}`,
+          contextPrefix,
+          `**Project Architecture — ${a.name}:**`,
           "",
-          `**Stack:** ${[...a.techStack.frontend, ...a.techStack.backend].join(', ') || 'Not detected'}`,
-          a.strengths.length > 0 ? `**Strong at:** ${a.strengths.slice(0, 2).join('; ')}` : "",
-          a.weaknesses.length > 0 ? `**Needs work:** ${a.weaknesses.slice(0, 2).join('; ')}` : "",
+          `🏗️ **Architecture:** ${a.architecture}`,
+          `📊 **Score: ${a.score}/100** | Stage: ${a.stage}`,
+          "",
+          "**Tech Stack:**",
+          `• Frontend: ${a.techStack.frontend.join(", ") || "Not detected"}`,
+          `• Backend: ${a.techStack.backend.join(", ") || "Not detected"}`,
+          `• Database: ${a.techStack.database.join(", ") || "Not detected"}`,
+          `• Cloud: ${a.techStack.cloud.join(", ") || "Not detected"}`,
+          "",
+          `**Strengths:** ${a.strengths.join("; ")}`,
+          `**Weaknesses:** ${a.weaknesses.join("; ")}`,
+          "",
+          "**What to focus on:**",
+          "1. Address the identified weaknesses",
+          "2. Leverage the strengths for faster development",
+          "3. Consider architectural improvements"
         );
       }
-      return "No repository analysis yet. Import a project to get architecture insights.";
+      return nl(
+        "No repository analysis found.",
+        "Import a project using the 'Import Project' button to get AI-powered architecture analysis."
+      );
     }
 
     case "team":
       return nl(
-        `${ctx.totalInProgress} tasks in progress · ${ctx.totalTodo} waiting · ${ctx.totalRisk} high-risk`,
+        contextPrefix,
+        "**Team Collaboration Analysis:**",
         "",
-        ctx.totalInProgress > 3 ? "WIP is high — finishing before starting would improve flow." : "Workload looks manageable.",
+        `**Current Workload Distribution:**`,
+        `• ${ctx.totalInProgress} task${ctx.totalInProgress !== 1 ? "s" : ""} in progress`,
+        `• ${ctx.totalTodo} task${ctx.totalTodo !== 1 ? "s" : ""} waiting`,
+        `• ${ctx.totalRisk} high-risk task${ctx.totalRisk !== 1 ? "s" : ""}`,
+        "",
+        "**Recommendations:**",
+        "1. Limit work-in-progress to 2-3 tasks per person",
+        "2. Pair on high-risk or complex tasks",
+        "3. Use task comments for async communication",
+        "4. Regular standups catch blockers early",
+        "5. Balance quick wins with larger features"
       );
 
     case "deploy":
       return nl(
-        `${ctx.completionRate}% complete — ${ctx.totalDone} tasks done.`,
+        contextPrefix,
+        "**Deployment Planning:**",
         "",
-        ctx.totalRisk > 0 ? `${ctx.totalRisk} high-risk items should be resolved before deploying.` : "Looks ready for a deploy.",
+        `**Current Status:** ${ctx.completionRate}% complete`,
+        `**Ready for Deploy:** ${ctx.totalDone} task${ctx.totalDone !== 1 ? "s" : ""} completed`,
+        "",
+        "**Before deploying:**",
+        "1. Ensure all critical tasks are completed",
+        "2. Run full test suite",
+        "3. Review security checklist",
+        "4. Check performance benchmarks",
+        "5. Prepare rollback plan"
       );
 
     case "code":
@@ -1095,22 +979,27 @@ function generateReasonedResponse(
     case "api":
     case "ui":
     case "devops": {
+      // For technical questions, provide workspace-aware responses
       const activeTasks = ctx.tasks.filter(t => t.status === "in_progress");
-      if (activeTasks.length > 0) {
-        return nl(
-          `**${intent.charAt(0).toUpperCase() + intent.slice(1)}** — relevant active work:`,
-          ...activeTasks.slice(0, 3).map(t => `• "${t.title}" [${t.status}]`),
-          "",
-          "Want me to focus on any of these?"
-        );
-      }
-      if (ctx.totalTasks > 0) {
-        return nl(
-          `No in-progress ${intent} tasks. Your ${ctx.totalTasks} tasks are mostly ${ctx.totalDone > 0 ? 'done' : 'waiting'}.`,
-          "Start something and I'll track it."
-        );
-      }
-      return "No tasks yet. Create some and I'll give you context-aware ${intent} analysis.";
+      const highPriority = ctx.tasks.filter(t => t.priority === "critical" || t.priority === "high");
+      
+      return nl(
+        contextPrefix,
+        `**${intent.charAt(0).toUpperCase() + intent.slice(1)} Analysis:**`,
+        "",
+        `Based on your workspace (${ctx.completionRate}% complete):`,
+        "",
+        activeTasks.length > 0
+          ? `**Active work:** ${activeTasks.slice(0, 3).map(t => `"${t.title}"`).join(", ")}`
+          : `**High-priority items:** ${highPriority.slice(0, 3).map(t => `"${t.title}" [${t.priority}]`).join(", ")}`,
+        "",
+        "**My recommendation:**",
+        "1. Focus on the highest-priority item first",
+        "2. Break down complex tasks into smaller pieces",
+        "3. Test thoroughly before moving to the next task",
+        "",
+        "Want me to dive deeper into any specific aspect?"
+      );
     }
 
     case "explain":
@@ -1119,34 +1008,54 @@ function generateReasonedResponse(
       if (ctx.totalTasks > 0) {
         const highPriority = ctx.tasks.filter(t => t.priority === "critical" || t.priority === "high").slice(0, 3);
         return nl(
-          highPriority.length > 0
-            ? `**Top items:** ${highPriority.map(t => `"${t.title}" [${t.status}]`).join(', ')}`
-            : `**${ctx.totalTasks} tasks** at ${ctx.completionRate}% complete.`,
+          contextPrefix,
+          `**Analysis based on your workspace (${ctx.completionRate}% complete):**`,
           "",
-          "What specifically do you want me to ${intent}?"
+          highPriority.length > 0
+            ? `**High-priority items:** ${highPriority.map(t => `"${t.title}" [${t.status}]`).join(", ")}`
+            : `**Current tasks:** ${ctx.totalTasks} total, ${ctx.totalInProgress} in progress`,
+          "",
+          "What specific aspect would you like me to focus on?"
         );
       }
-      return "Workspace is empty — create tasks first and I'll have data to work with.";
+      return nl(
+        "I'd be happy to help! Your workspace is currently empty.",
+        "Create a project and add tasks, and I'll be able to give you specific, data-driven answers."
+      );
     }
 
     case "thanks":
-      return "Anytime! 👋";
+      return "You're welcome! 😊 I'm here whenever you need help with your workspace.";
 
     case "farewell":
-      return "See you! 👋";
+      return "See you later! 👋 I'll keep monitoring your workspace. Come back anytime!";
 
     case "general":
     default: {
+      // For general questions, provide workspace-aware responses
       if (ctx.totalTasks > 0) {
         return nl(
-          `${ctx.completionRate}% complete · ${ctx.totalTasks} tasks`,
-          ctx.totalInProgress > 0 ? `· ${ctx.totalInProgress} active` : "",
-          ctx.totalRisk > 0 ? `· ⚠️ ${ctx.totalRisk} at risk` : "",
+          contextPrefix,
+          `**Workspace Overview:**`,
           "",
-          "What do you need?"
+          `📊 **Status:** ${ctx.completionRate}% complete, ${ctx.totalTasks} tasks total`,
+          ctx.totalInProgress > 0 ? `🔄 **Active:** ${ctx.tasks.filter(t => t.status === "in_progress").slice(0, 3).map(t => `"${t.title}"`).join(", ")}` : "",
+          ctx.totalRisk > 0 ? `⚠️ **Risks:** ${ctx.totalRisk} high-risk tasks` : "",
+          ctx.totalOverdue > 0 ? `⏰ **Overdue:** ${ctx.totalOverdue} tasks` : "",
+          "",
+          "What would you like me to investigate or explain?"
         );
       }
-      return "No projects yet — create one and I'll have context to help.";
+      return nl(
+        `I can help with that! Your workspace has ${ctx.totalProjects} project${ctx.totalProjects !== 1 ? "s" : ""}.`,
+        "",
+        "Ask me about:",
+        "• Project progress and health status",
+        "• Risk analysis and blockers",
+        "• Sprint planning and task prioritization",
+        "• Architecture and tech stack",
+        "• Or any software development question"
+      );
     }
   }
 }

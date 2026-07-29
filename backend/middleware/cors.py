@@ -1,6 +1,11 @@
-from __future__ import annotations
-from typing import Optional
+"""CORS middleware configuration."""
 from fastapi.middleware.cors import CORSMiddleware
 
-def setup_cors(app, origins: Optional[list[str]] = None):
-    app.add_middleware(CORSMiddleware, allow_origins=origins or ["*"], allow_credentials=False, allow_methods=["*"], allow_headers=["*"])
+def setup_cors(app, origins=None):
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=origins or ["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
