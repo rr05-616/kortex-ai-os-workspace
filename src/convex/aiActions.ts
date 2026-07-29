@@ -111,6 +111,7 @@ interface ConversationMemory {
   currentGoal?: string;
   discussedTasks: string[];
   discussedSprints: string[];
+  previousResponse?: string;
 }
 
 function buildConversationMemory(history: Array<{ role: string; content: string }>): ConversationMemory {
@@ -123,6 +124,7 @@ function buildConversationMemory(history: Array<{ role: string; content: string 
 
   for (const response of assistantResponses) {
     const content = response.content;
+    memory.previousResponse = content;
     
     // Extract task names mentioned
     const taskMatches = content.match(/\*\*"([^"]+)"\*\*/g);
@@ -332,7 +334,6 @@ function analyzeWorkspace(ctx: ContextData, intent: Intent): ReasoningResult {
   const inProgressTasks = ctx.tasks.filter(t => t.status === "in_progress");
   const readyTasks = ctx.tasks.filter(t => t.status === "todo" || t.status === "backlog");
 
-
   // Intent-specific reasoning
   switch (intent) {
     case "suggest": {
@@ -441,7 +442,7 @@ function analyzeWorkspace(ctx: ContextData, intent: Intent): ReasoningResult {
 
     case "risk": {
       if (blockedTasks.length === 0 && overdueTasks.length === 0) {
-        result.primaryInsight = "✅ All clear! No high-risk or overdue tasks detected.";
+        result.primaryInsight = "All clear! No high-risk or overdue tasks detected.";
         result.supportingEvidence = ["No blocked tasks", "No overdue tasks", "Workspace is healthy"];
         result.recommendations = [
           "Continue monitoring task statuses",

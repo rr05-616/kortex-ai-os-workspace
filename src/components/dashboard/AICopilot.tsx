@@ -454,7 +454,7 @@ export function AICopilot({ projectId, onClose, expanded }: AICopilotProps) {
         ...prev,
         {
           role: "assistant",
-          content: "I encountered an error processing your request. Please try again.",
+          content: "Processing failed. I still have your workspace context loaded — please retry your question.",
         },
       ]);
     } finally {
@@ -529,7 +529,7 @@ export function AICopilot({ projectId, onClose, expanded }: AICopilotProps) {
               Workspace Intelligence Active
             </h4>
             <p className="text-sm text-[rgba(232,245,238,0.4)] max-w-xs mx-auto">
-              I investigate your entire workspace before answering. Ask me anything about your projects, tasks, or architecture.
+              I&apos;ve loaded your workspace data. Every answer is grounded in your actual projects, tasks, and architecture.
             </p>
           </motion.div>
         )}
@@ -642,7 +642,7 @@ export function AICopilot({ projectId, onClose, expanded }: AICopilotProps) {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyPress={handleKeyPress}
-              placeholder="Ask about your workspace..."
+              placeholder="Ask anything — I have your full workspace context..."
               disabled={isThinking}
               className="w-full px-4 py-3 bg-[rgba(14,159,110,0.04)] border border-[rgba(14,159,110,0.1)] rounded-xl text-[13px] text-[rgba(232,245,238,0.9)] placeholder-[rgba(232,245,238,0.2)] focus:outline-none focus:border-[rgba(14,159,110,0.3)] disabled:opacity-50"
             />
