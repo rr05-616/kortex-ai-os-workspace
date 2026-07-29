@@ -1,16 +1,13 @@
-"""Request logging middleware."""
+from __future__ import annotations
 import time
+import structlog
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
-import structlog
-
 log = structlog.get_logger(__name__)
 
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
-        start = time.time()
-        log.info("request.started", method=request.method, path=str(request.url.path))
+        start = time.monotonic()
         response = await call_next(request)
-        duration = time.time() - start
-        log.info("request.finished", method=request.method, path=str(request.url.path), status=response.status_code, duration_ms=round(duration*1000, 1))
+        log.info("kortex.request", method=request.method, path=request.url.path, status=response.status_code, duration_ms=round((time.monotonic() - start) * 1000, 1))
         return response

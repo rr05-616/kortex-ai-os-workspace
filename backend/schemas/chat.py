@@ -2,7 +2,6 @@
 from __future__ import annotations
 from pydantic import BaseModel, Field
 from typing import Optional
-from datetime import datetime
 
 class ChatRequest(BaseModel):
     message: str
@@ -14,15 +13,10 @@ class ChatRequest(BaseModel):
 
 class ChatResponse(BaseModel):
     response: str
-    intent: str = ""
-    confidence: float = 0.0
+    intent: str = "general_ai"
+    confidence: float = 0.5
     conversation_id: str = ""
+    timestamp: str = ""
+    metadata: dict = {}
     tools_used: list[str] = []
     reasoning: str = ""
-    timestamp: str = Field(default_factory=lambda: datetime.now().isoformat())
-    metadata: dict = {}
-
-class StreamChunk(BaseModel):
-    event: str  # workspace_loading, reasoning, response_chunk, done, error
-    data: str
-    metadata: dict = {}

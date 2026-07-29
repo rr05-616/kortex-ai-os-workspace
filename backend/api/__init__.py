@@ -1,1 +1,1 @@
-"""KORTEX AI — API endpoints."""
+"""KORTEX AI — API endpoints package."""
