@@ -34,13 +34,6 @@ export async function verifyOtp(email: string, token: string) {
   return supabase.auth.verifyOtp({ email, token, type: "email" });
 }
 
-export async function signInWithGoogle() {
-  return supabase.auth.signInWithOAuth({
-    provider: "google",
-    options: { redirectTo: `${window.location.origin}/auth/callback` },
-  });
-}
-
 export async function signInAsGuest() {
   return supabase.auth.signInAnonymously();
 }

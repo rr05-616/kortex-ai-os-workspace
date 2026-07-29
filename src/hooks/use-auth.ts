@@ -16,7 +16,6 @@ interface UseAuthReturn {
   user: AuthUser | null;
   isAuthenticated: boolean;
   isLoading: boolean;
-  signInWithGoogle: () => Promise<void>;
   signInAsGuest: () => Promise<void>;
   signInWithOtp: (email: string) => Promise<void>;
   verifyOtp: (email: string, token: string) => Promise<void>;
@@ -85,15 +84,9 @@ export function useAuth(): UseAuthReturn {
     };
   }, [loadProfile]);
 
-  const signInWithGoogle = useCallback(async () => {
-    await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: { redirectTo: `${window.location.origin}/dashboard` },
-    });
-  }, []);
-
   const signInAsGuest = useCallback(async () => {
-    await supabase.auth.signInAnonymously();
+    const { error } = await supabase.auth.signInAnonymously();
+    if (error) throw error;
   }, []);
 
   const signInWithOtp = useCallback(async (email: string) => {
@@ -115,7 +108,6 @@ export function useAuth(): UseAuthReturn {
     user,
     isAuthenticated: !!user,
     isLoading,
-    signInWithGoogle,
     signInAsGuest,
     signInWithOtp,
     verifyOtp,
