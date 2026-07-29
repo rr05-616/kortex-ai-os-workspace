@@ -9,6 +9,7 @@ import NewProjectDialog from "@/components/dashboard/NewProjectDialog";
 import { AICopilot } from "@/components/dashboard/AICopilot";
 import Settings from "@/components/dashboard/Settings";
 import ImportProjectDialog from "@/components/dashboard/ImportProjectDialog";
+import AnalyticsCharts from "@/components/dashboard/AnalyticsCharts";
 import logo from "@/assets/logo.svg";
 import {
   LogOut,
@@ -662,6 +663,9 @@ function AnalyticsView({ projects }: { projects: any[] | undefined }) {
           </div>
         </motion.div>
       )}
+
+      {/* ── Enhanced Analytics Charts (10 new sections) ── */}
+      <AnalyticsCharts projects={projects} />
     </motion.div>
   );
 }
