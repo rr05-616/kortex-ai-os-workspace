@@ -135,7 +135,8 @@ export async function createProject(args: {
   return data;
 }
 
-export async function updateProject(projectId: string, fields: Tables["projects"]["Update"]) {
+export async function updateProject(args: { projectId: string } & Record<string, unknown>) {
+  const { projectId, ...fields } = args;
   const { error } = await supabase
     .from("projects")
     .update(fields)
@@ -144,7 +145,8 @@ export async function updateProject(projectId: string, fields: Tables["projects"
   return projectId;
 }
 
-export async function deleteProject(projectId: string) {
+export async function deleteProject(args: { projectId: string }) {
+  const { projectId } = args;
   // Cascade deletes handle tasks, sprints, etc. via foreign keys
   const { error } = await supabase
     .from("projects")
@@ -275,7 +277,8 @@ export async function createTask(args: {
   return data;
 }
 
-export async function updateTask(taskId: string, fields: Tables["tasks"]["Update"]) {
+export async function updateTask(args: { taskId: string } & Record<string, unknown>) {
+  const { taskId, ...fields } = args;
   const { error } = await supabase
     .from("tasks")
     .update(fields)
@@ -291,7 +294,8 @@ export async function reorderTasks(projectId: string, taskIds: string[]) {
   await Promise.all(updates);
 }
 
-export async function deleteTask(taskId: string) {
+export async function deleteTask(args: { taskId: string }) {
+  const { taskId } = args;
   // Delete subtasks
   await supabase.from("tasks").delete().eq("parent_task_id", taskId);
   // Delete comments

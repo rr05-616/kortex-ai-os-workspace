@@ -67,7 +67,7 @@ export default function Dashboard() {
       if (selectedProjectId === projectId) {
         setSelectedProjectId(null);
       }
-      await deleteProjectMut(projectId);
+      await deleteProjectMut({ projectId });
     } catch (err) {
       console.error("Failed to delete project:", err);
     }

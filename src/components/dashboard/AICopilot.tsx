@@ -1,7 +1,4 @@
 import { useState, useRef, useEffect, useMemo } from "react";
-import { useQuery, useMutation, useAction } from "convex/react";
-import { api } from "@/convex/_generated/api";
-import type { Id } from "@/convex/_generated/dataModel";
 import { motion, AnimatePresence } from "framer-motion";
 import { sendToBackend, checkBackendHealth } from "@/lib/backend";
 import {
@@ -10,11 +7,12 @@ import {
   Clock, Target, Zap, Loader2,
   ArrowUp, Globe, GitBranch, BarChart3,
 } from "lucide-react";
+import { useAuth } from "@/hooks/use-auth";
 
 // ─── TYPES ───────────────────────────────────────────────────────────────────
 
 interface AICopilotProps {
-  projectId?: Id<"projects">;
+  projectId?: string;
   onClose?: () => void;
   expanded?: boolean;
 }
@@ -98,7 +96,7 @@ function ContextStatus({
   globalData,
   backendReady,
 }: {
-  projectId?: Id<"projects">;
+  projectId?: string;
   projectData?: ProjectInsightData | null;
   globalData?: GlobalInsightData | null;
   backendReady: boolean | null;
@@ -157,7 +155,7 @@ function useDynamicSuggestions({
   globalData,
   messages,
 }: {
-  projectId?: Id<"projects">;
+  projectId?: string;
   projectData?: ProjectInsightData | null;
   globalData?: GlobalInsightData | null;
   messages: Array<{ role: "user" | "assistant"; content: string }>;
@@ -296,32 +294,127 @@ export function AICopilot({ projectId, onClose, expanded }: AICopilotProps) {
   const [messages, setMessages] = useState<Array<{ role: "user" | "assistant"; content: string }>>([]);
   const [isThinking, setIsThinking] = useState(false);
   const [currentStep, setCurrentStep] = useState<AgentStep>("searching");
-  const [conversationId, setConversationId] = useState<Id<"aiConversations"> | null>(null);
+  const [conversationId, setConversationId] = useState<string | null>(null);
   const [showInsights, setShowInsights] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const { user } = useAuth();
 
-  // Queries
-  const projectData = useQuery(
-    api.ai.getProjectInsights,
-    projectId ? { projectId } : "skip"
-  );
-  const globalData = useQuery(api.ai.getGlobalInsights);
-  const conversations = useQuery(api.ai.getConversations);
-
-  // Mutations
-  const createConversation = useMutation(api.ai.createConversation);
-  const sendMessageMutation = useMutation(api.ai.sendMessage);
-  const saveAssistantResponse = useMutation(api.ai.saveAssistantResponse);
-
-  // Actions
-  const generateResponse = useAction(api.aiActions.generateResponse);
+  // Project data (would be fetched from Supabase in production)
+  const [projectData, setProjectData] = useState<ProjectInsightData | null>(null);
+  const [globalData, setGlobalData] = useState<GlobalInsightData | null>(null);
 
   // Check backend health on mount
   const [backendReady, setBackendReady] = useState<boolean | null>(null);
   useEffect(() => {
     checkBackendHealth().then(setBackendReady);
   }, []);
+
+  // Load workspace data when project changes
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        if (projectId) {
+          // Load project-specific data from Supabase
+          const { supabase } = await import("@/lib/supabase");
+          const { data: project } = await supabase
+            .from("projects")
+            .select("name, status, health_score")
+            .eq("id", projectId)
+            .single();
+          
+          const { data: tasks } = await supabase
+            .from("tasks")
+            .select("status, priority, risk_score, due_date")
+            .eq("project_id", projectId);
+          
+          if (project && tasks) {
+            const total = tasks.length;
+            const done = tasks.filter(t => t.status === "done").length;
+            const inProgress = tasks.filter(t => t.status === "in_progress").length;
+            const todo = tasks.filter(t => t.status === "todo").length;
+            const backlog = tasks.filter(t => t.status === "backlog").length;
+            const review = tasks.filter(t => t.status === "in_review").length;
+            const highRisk = tasks.filter(t => t.risk_score && t.risk_score > 70).length;
+            const overdue = tasks.filter(t => t.due_date && new Date(t.due_date) < new Date()).length;
+            
+            setProjectData({
+              project: {
+                name: project.name,
+                status: project.status,
+                healthScore: project.health_score || 75,
+                sprintDuration: 14,
+              },
+              stats: {
+                total, done, inProgress, todo, backlog, review, highRisk, overdue,
+                completionRate: total > 0 ? Math.round((done / total) * 100) : 0,
+              },
+              stage: project.status === "planning" ? "Planning" : 
+                     project.status === "active" ? "Development" : "Maintenance",
+              insights: [
+                {
+                  type: total === 0 ? "suggestion" : "status",
+                  title: total === 0 ? "Ready for breakdown" : "Project active",
+                  detail: total === 0 ? "No tasks yet — ready for AI-powered breakdown" : `${total} tasks tracked, ${done} completed`,
+                  icon: total === 0 ? "suggestion" : "status",
+                },
+                ...(highRisk > 0 ? [{
+                  type: "warning",
+                  title: "High-risk tasks detected",
+                  detail: `${highRisk} tasks with elevated risk scores need attention`,
+                  icon: "warning",
+                }] : []),
+              ],
+            });
+          }
+        } else {
+          // Load global workspace data
+          const { supabase } = await import("@/lib/supabase");
+          const { data: projects } = await supabase.from("projects").select("id, status");
+          const { data: allTasks } = await supabase.from("tasks").select("status, priority, risk_score, due_date");
+          
+          if (projects && allTasks) {
+            const totalProjects = projects.length;
+            const activeProjects = projects.filter(p => p.status === "active").length;
+            const totalTasks = allTasks.length;
+            const totalDone = allTasks.filter(t => t.status === "done").length;
+            const totalInProgress = allTasks.filter(t => t.status === "in_progress").length;
+            const totalRisk = allTasks.filter(t => t.risk_score && t.risk_score > 70).length;
+            const totalOverdue = allTasks.filter(t => t.due_date && new Date(t.due_date) < new Date()).length;
+            
+            setGlobalData({
+              totalProjects,
+              activeProjects,
+              totalTasks,
+              totalDone,
+              totalInProgress,
+              totalRisk,
+              totalOverdue,
+              globalCompletion: totalTasks > 0 ? Math.round((totalDone / totalTasks) * 100) : 0,
+              insights: [
+                {
+                  type: "status",
+                  title: `${totalProjects} projects tracked`,
+                  detail: `${activeProjects} active, ${totalTasks} total tasks`,
+                  icon: "status",
+                },
+                ...(totalRisk > 0 ? [{
+                  type: "warning",
+                  title: "Risk items detected",
+                  detail: `${totalRisk} high-risk items across workspace`,
+                  icon: "warning",
+                }] : []),
+              ],
+            });
+          }
+        }
+      } catch (error) {
+        console.error("Failed to load workspace data:", error);
+      }
+    };
+    
+    loadData();
+  }, [projectId]);
 
   // Dynamic suggestions
   const suggestions = useDynamicSuggestions({
@@ -341,34 +434,6 @@ export function AICopilot({ projectId, onClose, expanded }: AICopilotProps) {
     inputRef.current?.focus();
   }, []);
 
-  // Initialize conversation
-  useEffect(() => {
-    const initConversation = async () => {
-      if (!conversationId && conversations !== undefined) {
-        const existing = projectId
-          ? conversations.find((c) => c.projectId === projectId)
-          : conversations[0];
-
-        if (existing) {
-          setConversationId(existing._id);
-          setMessages(
-            existing.messages.map((m) => ({
-              role: m.role as "user" | "assistant",
-              content: m.content,
-            }))
-          );
-        } else {
-          const id = await createConversation({
-            projectId,
-            title: projectId && projectData ? projectData.project.name : "Global Chat",
-          });
-          setConversationId(id);
-        }
-      }
-    };
-    initConversation();
-  }, [conversations, projectId, projectData, createConversation, conversationId]);
-
   // Handle send message
   const handleSend = async (message?: string) => {
     const text = message || input.trim();
@@ -380,16 +445,6 @@ export function AICopilot({ projectId, onClose, expanded }: AICopilotProps) {
     setShowInsights(false);
 
     try {
-      // Ensure conversation exists — use the local ID directly
-      let activeConversationId = conversationId;
-      if (!activeConversationId) {
-        activeConversationId = await createConversation({
-          projectId,
-          title: projectId && projectData ? projectData.project.name : "Global Chat",
-        });
-        setConversationId(activeConversationId);
-      }
-
       // Simulate reasoning steps
       setCurrentStep("searching");
       await new Promise((r) => setTimeout(r, 400));
@@ -399,55 +454,57 @@ export function AICopilot({ projectId, onClose, expanded }: AICopilotProps) {
       await new Promise((r) => setTimeout(r, 400));
       setCurrentStep("generating");
 
-      // Send message and get context
-      const result = await sendMessageMutation({
-        conversationId: activeConversationId,
-        content: text,
-      });
-
-      // Try FastAPI Python backend first, fall back to Convex action
+      // Try FastAPI Python backend first
       let response: string;
       if (backendReady) {
         try {
           const backendResponse = await sendToBackend(
             text,
-            activeConversationId as unknown as string,
-            projectId as unknown as string,
-            result.conversationHistory,
+            conversationId || "new",
+            projectId || "",
+            messages.map(m => ({ role: m.role, content: m.content })),
           );
           response = backendResponse.response;
         } catch {
-          // FastAPI unavailable — fall back to Convex action
-          response = await generateResponse({
-            projectId: projectId ?? undefined,
-            userMessage: text,
-            conversationHistory: result.conversationHistory,
-            context: result.context,
-          });
+          // Fallback to local AI processing
+          response = await processLocally(text, projectId, projectData, globalData);
         }
       } else {
-        // FastAPI not ready — use Convex action directly
-        response = await generateResponse({
-          projectId: projectId ?? undefined,
-          userMessage: text,
-          conversationHistory: result.conversationHistory,
-          context: result.context,
-        });
+        // Use local AI processing
+        response = await processLocally(text, projectId, projectData, globalData);
       }
 
-      // Save assistant response
-      const updatedMessages = await saveAssistantResponse({
-        conversationId: activeConversationId,
-        content: response,
-      });
+      // Save to Supabase conversation
+      const { supabase } = await import("@/lib/supabase");
+      if (conversationId) {
+        // Append to existing conversation
+        await supabase
+          .from("ai_conversations")
+          .update({
+            messages: [...messages.map(m => ({ role: m.role, content: m.content })), { role: "assistant", content: response }],
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", conversationId);
+      } else {
+        // Create new conversation
+        const { data, error } = await supabase
+          .from("ai_conversations")
+          .insert({
+            user_id: user?.id || "anonymous",
+            project_id: projectId || null,
+            title: projectId && projectData ? projectData.project.name : "Global Chat",
+            messages: [...messages.map(m => ({ role: m.role, content: m.content })), { role: "assistant", content: response }],
+          })
+          .select("id")
+          .single();
+        
+        if (!error && data) {
+          setConversationId(data.id);
+        }
+      }
 
       // Update local state
-      setMessages(
-        updatedMessages.map((m) => ({
-          role: m.role as "user" | "assistant",
-          content: m.content,
-        }))
-      );
+      setMessages(prev => [...prev, { role: "assistant", content: response }]);
     } catch (error) {
       console.error("AI response error:", error);
       setMessages((prev) => [
@@ -460,6 +517,48 @@ export function AICopilot({ projectId, onClose, expanded }: AICopilotProps) {
     } finally {
       setIsThinking(false);
     }
+  };
+
+  // Local AI processing when backend is unavailable
+  const processLocally = async (
+    message: string,
+    projectId?: string,
+    projectData?: ProjectInsightData | null,
+    globalData?: GlobalInsightData | null
+  ): Promise<string> => {
+    // Simple local processing with workspace context
+    const lowerMessage = message.toLowerCase();
+    
+    if (lowerMessage.includes("what should i work on next") || lowerMessage.includes("what to do next")) {
+      if (projectData) {
+        if (projectData.stats.highRisk > 0) {
+          return `Based on your project analysis, I recommend tackling the ${projectData.stats.highRisk} high-risk tasks first. These have elevated risk scores and could impact your timeline if not addressed.\n\nStart with the highest-risk items and break them into smaller, manageable pieces.`;
+        }
+        if (projectData.stats.overdue > 0) {
+          return `You have ${projectData.stats.overdue} overdue tasks. I suggest prioritizing these to get back on track.\n\nFocus on the most critical overdue items first, then reassess your timeline.`;
+        }
+        if (projectData.stats.inProgress === 0 && projectData.stats.todo > 0) {
+          return `You have ${projectData.stats.todo} tasks ready to start. I recommend beginning with the highest priority items.\n\nConsider breaking larger tasks into smaller chunks to maintain momentum.`;
+        }
+      }
+      return "I recommend reviewing your current tasks and priorities. Focus on high-impact items that align with your project goals.";
+    }
+    
+    if (lowerMessage.includes("project health") || lowerMessage.includes("analyze")) {
+      if (projectData) {
+        const health = projectData.project.healthScore;
+        const status = health >= 80 ? "Excellent" : health >= 60 ? "Good" : health >= 40 ? "Fair" : "Needs Attention";
+        return `Project Health: ${status} (${health}/100)\n\n• Completion: ${projectData.stats.completionRate}%\n• Active Tasks: ${projectData.stats.inProgress}\n• High Risk: ${projectData.stats.highRisk}\n• Overdue: ${projectData.stats.overdue}\n\nRecommendation: ${health < 70 ? "Focus on reducing risk and clearing overdue items" : "Maintain current pace and monitor high-risk tasks"}`;
+      }
+    }
+    
+    if (lowerMessage.includes("portfolio") || lowerMessage.includes("overview")) {
+      if (globalData) {
+        return `Portfolio Overview:\n\n• Projects: ${globalData.totalProjects} (${globalData.activeProjects} active)\n• Tasks: ${globalData.totalTasks} (${globalData.totalDone} completed)\n• Overall Completion: ${globalData.globalCompletion}%\n• Risk Items: ${globalData.totalRisk}\n• Overdue: ${globalData.totalOverdue}\n\nYour portfolio is ${globalData.globalCompletion >= 70 ? "progressing well" : "showing areas that need attention"}.`;
+      }
+    }
+    
+    return "I understand your question. Based on your workspace data, I recommend focusing on high-priority tasks and monitoring any risk items. Would you like me to analyze a specific project or task?";
   };
 
   // Handle suggestion click
