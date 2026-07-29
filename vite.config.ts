@@ -93,5 +93,14 @@ export default defineConfig({
     host: true,
     port: 5173,
     hmr: false,
+    // CRITICAL: Exclude backend/ from Vite file watching.
+    // Without this, Python file changes crash the dev server.
+    watch: {
+      ignored: ['**/backend/**', '**/__pycache__/**'],
+    },
+    fs: {
+      allow: ['.'],
+      deny: ['**/backend/**'],
+    },
   },
 });
