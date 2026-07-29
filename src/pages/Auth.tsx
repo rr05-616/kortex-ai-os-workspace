@@ -3,21 +3,15 @@ import { useAuth } from "@/hooks/use-auth";
 import { useNavigate, useSearchParams } from "react-router";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  Sparkles, Mail, UserX, ArrowRight, Loader2, Brain, KeyRound,
-  Smartphone, Globe, ChevronDown, CheckCircle2, RefreshCw,
+  Sparkles, UserX, ArrowRight, Loader2, Brain, KeyRound,
+  Smartphone, ChevronDown, CheckCircle2, RefreshCw,
 } from "lucide-react";
 
 interface AuthProps {
   redirectAfterAuth?: string;
 }
 
-type AuthStep =
-  | "method"           // Choose login method
-  | "email-input"      // Enter email
-  | "email-otp"        // Verify email OTP
-  | "mobile-input"     // Enter mobile number
-  | "mobile-otp"       // Verify mobile OTP
-  | "loading";         // Processing
+type AuthStep = "method" | "mobile-input" | "mobile-otp";
 
 const COUNTRIES = [
   { code: "+1", flag: "🇺🇸", name: "US" },
@@ -43,9 +37,7 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
   const [searchParams] = useSearchParams();
   const redirect = resolveRedirectAfterAuth(searchParams.get("returnTo"), redirectAfterAuth);
 
-  // ── State ──
   const [step, setStep] = useState<AuthStep>("method");
-  const [email, setEmail] = useState("");
   const [otp, setOtp] = useState("");
   const [phone, setPhone] = useState("");
   const [country, setCountry] = useState(COUNTRIES[0]);
@@ -55,59 +47,15 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
   const [resendTimer, setResendTimer] = useState(0);
   const [resendAttempts, setResendAttempts] = useState(0);
 
-  // ── Redirect if already authenticated ──
   useEffect(() => {
     if (!authLoading && isAuthenticated) navigate(redirect);
   }, [authLoading, isAuthenticated, navigate, redirect]);
 
-  // ── Resend timer ──
   useEffect(() => {
     if (resendTimer <= 0) return;
     const timer = setTimeout(() => setResendTimer((t) => t - 1), 1000);
     return () => clearTimeout(timer);
   }, [resendTimer]);
-
-
-
-  // ── Email OTP Send ──
-  const handleEmailSubmit = useCallback(async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!email.trim()) return;
-    setIsLoading(true);
-    setError(null);
-    try {
-      const formData = new FormData();
-      formData.set("email", email);
-      await signIn("email-otp", formData);
-      setStep("email-otp");
-      setResendTimer(60);
-      setResendAttempts(0);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to send code.");
-    } finally {
-      setIsLoading(false);
-    }
-  }, [email, signIn]);
-
-  // ── Email OTP Verify ──
-  const handleEmailOtpVerify = useCallback(async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (otp.length !== 6) return;
-    setIsLoading(true);
-    setError(null);
-    try {
-      const formData = new FormData();
-      formData.set("email", email);
-      formData.set("code", otp);
-      await signIn("email-otp", formData);
-      navigate(redirect);
-    } catch {
-      setError("Invalid verification code. Please try again.");
-      setOtp("");
-    } finally {
-      setIsLoading(false);
-    }
-  }, [otp, email, signIn, navigate, redirect]);
 
   // ── Mobile OTP Send ──
   const handleMobileSubmit = useCallback(async (e: React.FormEvent) => {
@@ -175,25 +123,18 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
     setIsLoading(true);
     setError(null);
     try {
-      if (step === "email-otp") {
-        const formData = new FormData();
-        formData.set("email", email);
-        await signIn("email-otp", formData);
-      } else if (step === "mobile-otp") {
-        const fullPhone = `${country.code}${phone}`;
-        const formData = new FormData();
-        formData.set("phone", fullPhone);
-        await signIn("mobile-otp", formData);
-      }
+      const fullPhone = `${country.code}${phone}`;
+      const formData = new FormData();
+      formData.set("phone", fullPhone);
+      await signIn("mobile-otp", formData);
       setResendTimer(60);
     } catch {
       setError("Failed to resend code.");
     } finally {
       setIsLoading(false);
     }
-  }, [step, email, phone, country, signIn, resendAttempts]);
+  }, [phone, country, signIn, resendAttempts]);
 
-  // ── OTP Input Handler ──
   const handleOtpChange = useCallback((e: React.ChangeEvent<HTMLInputElement>, index: number) => {
     const val = e.target.value.replace(/\D/g, "").slice(0, 1);
     const newOtp = otp.slice(0, index) + val + otp.slice(index + 1);
@@ -202,19 +143,13 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
       const nextInput = e.currentTarget.parentElement?.children[index + 1] as HTMLInputElement | undefined;
       nextInput?.focus();
     }
-    // Auto-submit when all 6 digits entered
     if (newOtp.length === 6 && val) {
       setTimeout(() => {
-        if (step === "email-otp") {
-          const form = e.currentTarget.closest("form");
-          form?.requestSubmit();
-        } else if (step === "mobile-otp") {
-          const form = e.currentTarget.closest("form");
-          form?.requestSubmit();
-        }
+        const form = e.currentTarget.closest("form");
+        form?.requestSubmit();
       }, 100);
     }
-  }, [otp, step]);
+  }, [otp]);
 
   const handleOtpKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>, index: number) => {
     if (e.key === "Backspace" && !otp[index] && index > 0) {
@@ -223,7 +158,6 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
     }
   }, [otp]);
 
-  // ── Paste handler ──
   const handleOtpPaste = useCallback((e: React.ClipboardEvent) => {
     e.preventDefault();
     const pasted = e.clipboardData.getData("text").replace(/\D/g, "").slice(0, 6);
@@ -232,7 +166,6 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
 
   return (
     <div className="min-h-screen flex flex-col bg-[#040705] relative overflow-hidden">
-      {/* Background */}
       <div className="absolute inset-0 pointer-events-none">
         <div className="absolute top-1/4 -left-40 w-96 h-96 rounded-full bg-[rgba(14,159,110,0.04)] blur-[120px]" />
         <div className="absolute bottom-1/3 -right-40 w-80 h-80 rounded-full bg-[rgba(14,159,110,0.03)] blur-[120px]" />
@@ -246,7 +179,6 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
           transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
           className="w-full max-w-[400px]"
         >
-          {/* Logo */}
           <div className="flex justify-center mb-8">
             <button onClick={() => navigate("/")} className="flex items-center gap-2.5 group">
               <div className="w-10 h-10 rounded-xl bg-[rgba(14,159,110,0.15)] flex items-center justify-center shadow-lg shadow-[rgba(14,159,110,0.1)]">
@@ -278,28 +210,17 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                   </div>
 
                   <div className="space-y-3">
-                    {/* Email */}
-                    <button
-                      onClick={() => setStep("email-input")}
-                      disabled={isLoading}
-                      className="btn-liquid btn-liquid-solid w-full h-12"
-                    >
-                      <Mail className="w-4 h-4 mr-2" />
-                      Continue with Email
-                    </button>
-
                     {/* Mobile */}
                     <button
                       onClick={() => setStep("mobile-input")}
                       disabled={isLoading}
-                      className="btn-liquid w-full h-12"
+                      className="btn-liquid btn-liquid-solid w-full h-12"
                     >
                       <Smartphone className="w-4 h-4 mr-2" />
                       Continue with Mobile
                     </button>
                   </div>
 
-                  {/* Divider */}
                   <div className="relative my-6">
                     <div className="absolute inset-0 flex items-center">
                       <span className="w-full border-t border-[rgba(255,255,255,0.04)]" />
@@ -309,7 +230,6 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                     </div>
                   </div>
 
-                  {/* Guest */}
                   <button
                     type="button"
                     className="btn-liquid btn-liquid-ghost w-full h-12"
@@ -329,100 +249,6 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                 </>
               )}
 
-              {/* ═══ EMAIL INPUT ═══ */}
-              {step === "email-input" && (
-                <>
-                  <div className="text-center mb-8">
-                    <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full glass mb-4">
-                      <Mail className="w-3 h-3 text-[#0E9F6E]" />
-                      <span className="text-[10px] font-medium text-[rgba(232,245,238,0.5)]">Email Verification</span>
-                    </div>
-                    <h1 className="text-xl font-bold text-[#E8F5EE]">Enter your email</h1>
-                    <p className="mt-2 text-sm text-[rgba(232,245,238,0.35)]">We&apos;ll send a verification code</p>
-                  </div>
-
-                  <form onSubmit={handleEmailSubmit} className="space-y-4">
-                    <input
-                      type="email"
-                      placeholder="name@example.com"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      className="w-full h-12 px-4 rounded-xl glass-input text-sm text-[#E8F5EE] placeholder:text-[rgba(232,245,238,0.2)]"
-                      disabled={isLoading}
-                      required
-                      autoFocus
-                    />
-                    {error && (
-                      <motion.p initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }}
-                        className="text-sm text-red-400 bg-[rgba(231,76,60,0.1)] rounded-lg px-3 py-2">{error}</motion.p>
-                    )}
-                    <button type="submit" className="btn-liquid btn-liquid-solid w-full h-12" disabled={isLoading || !email.trim()}>
-                      {isLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-                      Send Code <ArrowRight className="w-4 h-4 ml-1" />
-                    </button>
-                  </form>
-
-                  <button onClick={() => { setStep("method"); setError(null); }}
-                    className="btn-liquid btn-liquid-ghost w-full mt-3 h-10 text-[rgba(232,245,238,0.4)]">
-                    Back to all methods
-                  </button>
-                </>
-              )}
-
-              {/* ═══ EMAIL OTP ═══ */}
-              {step === "email-otp" && (
-                <>
-                  <div className="text-center mb-8">
-                    <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full glass mb-4">
-                      <Brain className="w-3 h-3 text-[#0E9F6E]" />
-                      <span className="text-[10px] font-medium text-[rgba(232,245,238,0.5)]">Verify Identity</span>
-                    </div>
-                    <h1 className="text-xl font-bold text-[#E8F5EE]">Check your email</h1>
-                    <p className="mt-2 text-sm text-[rgba(232,245,238,0.35)]">
-                      Code sent to <span className="text-[#E8F5EE] font-medium">{email}</span>
-                    </p>
-                  </div>
-
-                  <form onSubmit={handleEmailOtpVerify}>
-                    <div className="flex justify-center gap-2 mb-6" onPaste={handleOtpPaste}>
-                      {Array.from({ length: 6 }).map((_, i) => (
-                        <input key={i} type="text" maxLength={1} inputMode="numeric"
-                          className="w-11 h-12 rounded-xl glass-input text-center text-lg font-bold text-[#E8F5EE]"
-                          value={otp[i] || ""}
-                          onChange={(e) => handleOtpChange(e, i)}
-                          onKeyDown={(e) => handleOtpKeyDown(e, i)}
-                          disabled={isLoading} />
-                      ))}
-                    </div>
-
-                    {error && (
-                      <motion.p initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }}
-                        className="text-sm text-red-400 bg-[rgba(231,76,60,0.1)] rounded-lg px-3 py-2 text-center mb-4">{error}</motion.p>
-                    )}
-
-                    <p className="text-sm text-[rgba(232,245,238,0.35)] text-center mb-6">
-                      {resendTimer > 0 ? (
-                        <span>Resend code in {resendTimer}s</span>
-                      ) : (
-                        <button type="button" className="text-[#0E9F6E] font-medium hover:underline"
-                          onClick={handleResendOtp} disabled={isLoading}>
-                          <RefreshCw className="w-3 h-3 inline mr-1" />Resend code
-                        </button>
-                      )}
-                    </p>
-
-                    <button type="submit" className="btn-liquid btn-liquid-solid w-full h-12" disabled={isLoading || otp.length !== 6}>
-                      {isLoading ? <><Loader2 className="w-4 h-4 animate-spin mr-2" />Verifying...</> : <><KeyRound className="w-4 h-4 mr-2" />Verify Code<ArrowRight className="w-4 h-4 ml-2" /></>}
-                    </button>
-
-                    <button type="button" className="btn-liquid btn-liquid-ghost w-full mt-3 h-10 text-[rgba(232,245,238,0.4)]"
-                      onClick={() => { setStep("method"); setOtp(""); setError(null); }} disabled={isLoading}>
-                      Use different method
-                    </button>
-                  </form>
-                </>
-              )}
-
               {/* ═══ MOBILE INPUT ═══ */}
               {step === "mobile-input" && (
                 <>
@@ -437,7 +263,6 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
 
                   <form onSubmit={handleMobileSubmit} className="space-y-4">
                     <div className="flex gap-2">
-                      {/* Country Code Picker */}
                       <div className="relative">
                         <button type="button"
                           onClick={() => setShowCountryPicker(!showCountryPicker)}
@@ -462,7 +287,6 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                         )}
                       </div>
 
-                      {/* Phone Input */}
                       <input
                         type="tel"
                         placeholder="Phone number"
@@ -488,7 +312,7 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
 
                   <button onClick={() => { setStep("method"); setError(null); }}
                     className="btn-liquid btn-liquid-ghost w-full mt-3 h-10 text-[rgba(232,245,238,0.4)]">
-                    Back to all methods
+                    Back
                   </button>
                 </>
               )}

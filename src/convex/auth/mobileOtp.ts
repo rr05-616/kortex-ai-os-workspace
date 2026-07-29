@@ -14,20 +14,8 @@ export const mobileOtp = Phone({
     return generateRandomString(random, alphabet, 6);
   },
   async sendVerificationRequest({ identifier: phone, token }) {
-    // Send OTP via FastAPI backend
-    const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:8000";
-    try {
-      const response = await fetch(`${BACKEND_URL}/api/auth/mobile/send-otp`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone, otp: token }),
-      });
-      if (!response.ok) {
-        throw new Error(`Failed to send OTP: ${response.statusText}`);
-      }
-    } catch (error) {
-      console.error("Failed to send mobile OTP:", error);
-      throw error;
-    }
+    // For development: log OTP to console
+    // In production, integrate with Twilio, Vonage, or another SMS provider
+    console.log(`[OTP] Phone: ${phone}, Code: ${token}`);
   },
 });
