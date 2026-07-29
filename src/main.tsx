@@ -5,16 +5,41 @@ import { RequireAuth } from "@/components/RequireAuth";
 import { VlyToolbar } from "../vly-toolbar-readonly.tsx";
 import { ConvexAuthProvider } from "@convex-dev/auth/react";
 import { ConvexReactClient } from "convex/react";
-import React, { StrictMode, useEffect, lazy, Suspense } from "react";
+import React, { StrictMode, useEffect, lazy, Suspense, ComponentType } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Route, Routes, useLocation } from "react-router";
 import "./index.css";
 
-// Lazy load route components for better code splitting
-const Landing = lazy(() => import("./pages/Landing.tsx"));
-const AuthPage = lazy(() => import("./pages/Auth.tsx"));
-const Dashboard = lazy(() => import("./pages/Dashboard.tsx"));
-const NotFound = lazy(() => import("./pages/NotFound.tsx"));
+// ---------------------------------------------------------------------------
+// Resilient lazy import with automatic retry
+// ---------------------------------------------------------------------------
+// On the Freebuff platform, the Vite dev server restarts when files change.
+// If a `lazy(() => import(...))` fires during the restart, the browser gets
+// "Failed to fetch dynamically imported module". We retry up to 3 times with
+// exponential backoff before letting the error propagate to the error boundary.
+
+function resilientLazy<T extends React.ComponentType<Record<string, unknown>>>(
+  factory: () => Promise<{ default: T }>,
+  retries = 3,
+  delay = 800,
+): React.LazyExoticComponent<T> {
+  return lazy(() => {
+    const attempt = (remaining: number): Promise<{ default: T }> =>
+      factory().catch((err) => {
+        if (remaining <= 0) throw err;
+        return new Promise<{ default: T }>((resolve) =>
+          setTimeout(() => resolve(attempt(remaining - 1)), delay),
+        );
+      });
+    return attempt(retries);
+  });
+}
+
+// Lazy load route components for better code splitting — with retry
+const Landing = resilientLazy(() => import("./pages/Landing.tsx"));
+const AuthPage = resilientLazy(() => import("./pages/Auth.tsx"));
+const Dashboard = resilientLazy(() => import("./pages/Dashboard.tsx"));
+const NotFound = resilientLazy(() => import("./pages/NotFound.tsx"));
 
 // Simple loading fallback for route transitions
 function RouteLoading() {
@@ -43,7 +68,9 @@ class ToolbarErrorBoundary extends React.Component<
   }
 }
 
-/** Hard guard so runtime errors never leave the preview as a blank page. */
+/** Hard guard so runtime errors never leave the preview as a blank page.
+ *  Includes a retry button so users can recover from transient Vite restarts
+ *  without needing to understand the underlying issue. */
 class RootErrorBoundary extends React.Component<
   { children: React.ReactNode },
   { hasError: boolean; message: string; stack: string }
@@ -59,20 +86,44 @@ class RootErrorBoundary extends React.Component<
   componentDidCatch(err: Error) {
     console.error("[WebContainer preview] Root crash:", err);
   }
+
+  handleRetry = () => {
+    // Clear error state and force a full page reload to re-fetch modules
+    this.setState({ hasError: false, message: "", stack: "" });
+    window.location.reload();
+  };
+
   render() {
     if (this.state.hasError) {
+      const isTransientModuleError =
+        this.state.message?.includes("dynamically imported module") ||
+        this.state.message?.includes("Failed to fetch");
+
       return (
         <div className="min-h-screen flex items-center justify-center bg-background text-foreground p-6">
-          <div className="max-w-lg text-center">
-            <p className="text-sm font-semibold">Preview runtime error</p>
-            <p className="mt-2 text-xs text-muted-foreground break-words">
-              {this.state.message}
+          <div className="max-w-lg text-center space-y-4">
+            <p className="text-sm font-semibold">
+              {isTransientModuleError ? "Connection interrupted" : "Preview runtime error"}
             </p>
-            {this.state.stack && (
-              <pre className="mt-3 text-left text-[10px] leading-4 text-muted-foreground/80 max-h-40 overflow-auto rounded border border-border/60 p-2">
+            <p className="text-xs text-muted-foreground break-words">
+              {isTransientModuleError
+                ? "The dev server restarted while loading. Click retry to try again."
+                : this.state.message}
+            </p>
+            {!isTransientModuleError && this.state.stack && (
+              <pre className="text-left text-[10px] leading-4 text-muted-foreground/80 max-h-40 overflow-auto rounded border border-border/60 p-2">
                 {this.state.stack}
               </pre>
             )}
+            <button
+              onClick={this.handleRetry}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-md bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 transition-colors"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              Retry
+            </button>
           </div>
         </div>
       );
