@@ -3,25 +3,15 @@ import { useAuth } from "@/hooks/use-auth";
 import { useNavigate, useSearchParams } from "react-router";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  Sparkles, UserX, ArrowRight, Loader2, Brain, KeyRound,
-  Smartphone, ChevronDown, CheckCircle2, RefreshCw, Mail,
+  Sparkles, UserX, ArrowRight, Loader2,
+  Smartphone, ChevronDown, CheckCircle2, RefreshCw, Mail, KeyRound,
 } from "lucide-react";
-
-// Google SVG Icon
-const GoogleIcon = ({ className }: { className?: string }) => (
-  <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
-    <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
-    <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
-    <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
-  </svg>
-);
 
 interface AuthProps {
   redirectAfterAuth?: string;
 }
 
-type AuthStep = "method" | "mobile-input" | "mobile-otp";
+type AuthStep = "method" | "mobile-input" | "mobile-otp" | "email-input" | "email-otp";
 
 const COUNTRIES = [
   { code: "+1", flag: "🇺🇸", name: "US" },
@@ -50,6 +40,7 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
   const [step, setStep] = useState<AuthStep>("method");
   const [otp, setOtp] = useState("");
   const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
   const [country, setCountry] = useState(COUNTRIES[0]);
   const [showCountryPicker, setShowCountryPicker] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -66,6 +57,46 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
     const timer = setTimeout(() => setResendTimer((t) => t - 1), 1000);
     return () => clearTimeout(timer);
   }, [resendTimer]);
+
+  // ── Email OTP Send ──
+  const handleEmailSubmit = useCallback(async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email.trim() || !email.includes("@")) return;
+    setIsLoading(true);
+    setError(null);
+    try {
+      const formData = new FormData();
+      formData.set("email", email);
+      await signIn("email-otp", formData);
+      setStep("email-otp");
+      setResendTimer(60);
+      setResendAttempts(0);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to send verification code.");
+    } finally {
+      setIsLoading(false);
+    }
+  }, [email, signIn]);
+
+  // ── Email OTP Verify ──
+  const handleEmailOtpVerify = useCallback(async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (otp.length !== 6) return;
+    setIsLoading(true);
+    setError(null);
+    try {
+      const formData = new FormData();
+      formData.set("email", email);
+      formData.set("code", otp);
+      await signIn("email-otp", formData);
+      navigate(redirect);
+    } catch {
+      setError("Invalid code. Please try again.");
+      setOtp("");
+    } finally {
+      setIsLoading(false);
+    }
+  }, [otp, email, signIn, navigate, redirect]);
 
   // ── Mobile OTP Send ──
   const handleMobileSubmit = useCallback(async (e: React.FormEvent) => {
@@ -123,7 +154,7 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
     }
   }, [signIn, navigate, redirect]);
 
-  // ── Resend OTP ──
+  // ── Resend OTP (email or mobile) ──
   const handleResendOtp = useCallback(async () => {
     if (resendAttempts >= 3) {
       setError("Maximum resend attempts reached. Please try again later.");
@@ -133,17 +164,22 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
     setIsLoading(true);
     setError(null);
     try {
-      const fullPhone = `${country.code}${phone}`;
       const formData = new FormData();
-      formData.set("phone", fullPhone);
-      await signIn("mobile-otp", formData);
+      if (step === "email-otp") {
+        formData.set("email", email);
+        await signIn("email-otp", formData);
+      } else {
+        const fullPhone = `${country.code}${phone}`;
+        formData.set("phone", fullPhone);
+        await signIn("mobile-otp", formData);
+      }
       setResendTimer(60);
     } catch {
       setError("Failed to resend code.");
     } finally {
       setIsLoading(false);
     }
-  }, [phone, country, signIn, resendAttempts]);
+  }, [step, email, phone, country, signIn, resendAttempts]);
 
   const handleOtpChange = useCallback((e: React.ChangeEvent<HTMLInputElement>, index: number) => {
     const val = e.target.value.replace(/\D/g, "").slice(0, 1);
@@ -220,17 +256,17 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                   </div>
 
                   <div className="space-y-3">
-                    {/* Google */}
+                    {/* Email OTP */}
                     <button
-                      onClick={() => signIn("google")}
+                      onClick={() => setStep("email-input")}
                       disabled={isLoading}
                       className="btn-liquid btn-liquid-ghost w-full h-12 border border-[rgba(255,255,255,0.08)] hover:border-[rgba(255,255,255,0.15)]"
                     >
-                      <GoogleIcon className="w-5 h-5 mr-2" />
-                      Continue with Google
+                      <Mail className="w-4 h-4 mr-2" />
+                      Continue with Email
                     </button>
 
-                    {/* Mobile */}
+                    {/* Mobile OTP */}
                     <button
                       onClick={() => setStep("mobile-input")}
                       disabled={isLoading}
@@ -266,6 +302,102 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                       {error}
                     </motion.p>
                   )}
+                </>
+              )}
+
+              {/* ═══ EMAIL INPUT ═══ */}
+              {step === "email-input" && (
+                <>
+                  <div className="text-center mb-8">
+                    <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full glass mb-4">
+                      <Mail className="w-3 h-3 text-[#0E9F6E]" />
+                      <span className="text-[10px] font-medium text-[rgba(232,245,238,0.5)]">Email Verification</span>
+                    </div>
+                    <h1 className="text-xl font-bold text-[#E8F5EE]">Enter your email address</h1>
+                    <p className="mt-2 text-sm text-[rgba(232,245,238,0.35)]">We&apos;ll send a 6-digit code to verify</p>
+                  </div>
+
+                  <form onSubmit={handleEmailSubmit} className="space-y-4">
+                    <input
+                      type="email"
+                      placeholder="you@example.com"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      className="w-full h-12 px-4 rounded-xl glass-input text-sm text-[#E8F5EE] placeholder:text-[rgba(232,245,238,0.2)]"
+                      disabled={isLoading}
+                      required
+                      autoFocus
+                    />
+
+                    {error && (
+                      <motion.p initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }}
+                        className="text-sm text-red-400 bg-[rgba(231,76,60,0.1)] rounded-lg px-3 py-2">{error}</motion.p>
+                    )}
+
+                    <button type="submit" className="btn-liquid btn-liquid-solid w-full h-12" disabled={isLoading || !email.trim()}>
+                      {isLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                      Send Code <ArrowRight className="w-4 h-4 ml-1" />
+                    </button>
+                  </form>
+
+                  <button onClick={() => { setStep("method"); setError(null); }}
+                    className="btn-liquid btn-liquid-ghost w-full mt-3 h-10 text-[rgba(232,245,238,0.4)]">
+                    Back
+                  </button>
+                </>
+              )}
+
+              {/* ═══ EMAIL OTP ═══ */}
+              {step === "email-otp" && (
+                <>
+                  <div className="text-center mb-8">
+                    <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full glass mb-4">
+                      <CheckCircle2 className="w-3 h-3 text-[#0E9F6E]" />
+                      <span className="text-[10px] font-medium text-[rgba(232,245,238,0.5)]">Code Sent</span>
+                    </div>
+                    <h1 className="text-xl font-bold text-[#E8F5EE]">Enter verification code</h1>
+                    <p className="mt-2 text-sm text-[rgba(232,245,238,0.35)]">
+                      Code sent to <span className="text-[#E8F5EE] font-medium">{email}</span>
+                    </p>
+                  </div>
+
+                  <form onSubmit={handleEmailOtpVerify}>
+                    <div className="flex justify-center gap-2 mb-6" onPaste={handleOtpPaste}>
+                      {Array.from({ length: 6 }).map((_, i) => (
+                        <input key={i} type="text" maxLength={1} inputMode="numeric"
+                          className="w-11 h-12 rounded-xl glass-input text-center text-lg font-bold text-[#E8F5EE]"
+                          value={otp[i] || ""}
+                          onChange={(e) => handleOtpChange(e, i)}
+                          onKeyDown={(e) => handleOtpKeyDown(e, i)}
+                          disabled={isLoading} />
+                      ))}
+                    </div>
+
+                    {error && (
+                      <motion.p initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }}
+                        className="text-sm text-red-400 bg-[rgba(231,76,60,0.1)] rounded-lg px-3 py-2 text-center mb-4">{error}</motion.p>
+                    )}
+
+                    <p className="text-sm text-[rgba(232,245,238,0.35)] text-center mb-6">
+                      {resendTimer > 0 ? (
+                        <span>Resend code in {resendTimer}s</span>
+                      ) : (
+                        <button type="button" className="text-[#0E9F6E] font-medium hover:underline"
+                          onClick={handleResendOtp} disabled={isLoading}>
+                          <RefreshCw className="w-3 h-3 inline mr-1" />Resend code
+                        </button>
+                      )}
+                    </p>
+
+                    <button type="submit" className="btn-liquid btn-liquid-solid w-full h-12" disabled={isLoading || otp.length !== 6}>
+                      {isLoading ? <><Loader2 className="w-4 h-4 animate-spin mr-2" />Verifying...</> : <><KeyRound className="w-4 h-4 mr-2" />Verify Code<ArrowRight className="w-4 h-4 ml-2" /></>}
+                    </button>
+
+                    <button type="button" className="btn-liquid btn-liquid-ghost w-full mt-3 h-10 text-[rgba(232,245,238,0.4)]"
+                      onClick={() => { setStep("method"); setOtp(""); setError(null); }} disabled={isLoading}>
+                      Use different method
+                    </button>
+                  </form>
                 </>
               )}
 
@@ -348,6 +480,9 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                     <h1 className="text-xl font-bold text-[#E8F5EE]">Enter verification code</h1>
                     <p className="mt-2 text-sm text-[rgba(232,245,238,0.35)]">
                       Code sent to <span className="text-[#E8F5EE] font-medium">{country.code} {phone}</span>
+                    </p>
+                    <p className="mt-1 text-[10px] text-[rgba(232,245,238,0.2)]">
+                      Check Convex dashboard &gt; Auth &gt; Verification Tokens for dev OTP
                     </p>
                   </div>
 
