@@ -3,8 +3,8 @@
 import { convexAuth } from "@convex-dev/auth/server";
 import { Anonymous } from "@convex-dev/auth/providers/Anonymous";
 import { mobileOtp } from "./auth/mobileOtp";
-
+import Google from "@auth/core/providers/google";
 
 export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
-  providers: [mobileOtp, Anonymous],
+  providers: [mobileOtp, Anonymous, Google],
 });
