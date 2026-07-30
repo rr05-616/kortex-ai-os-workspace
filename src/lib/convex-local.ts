@@ -1,30 +1,49 @@
 import { useEffect, useMemo, useState } from "react";
 
-function createReference(name: string) {
-  return Object.assign(
-    (..._args: unknown[]) => undefined,
-    {
-      __convexName: name,
+/**
+ * Safely extract a string name from a Convex function reference or Proxy object.
+ * Convex anyApi returns Proxy objects that don't have __convexName.
+ * We try toString() which Convex FunctionReferences support.
+ */
+function extractName(ref: unknown, fallback: string): string {
+  if (!ref) return fallback;
+
+  // If it's a function with __convexName
+  if (typeof ref === "function") {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const fnRef = ref as any;
+    if (typeof fnRef.__convexName === "string") return fnRef.__convexName;
+    if (typeof fnRef.name === "string" && fnRef.name.length > 0) return fnRef.name;
+  }
+
+  // If it's an object (Convex Proxy / FunctionReference)
+  if (typeof ref === "object" && ref !== null) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const objRef = ref as any;
+    if (typeof objRef.__convexName === "string") return objRef.__convexName;
+
+    // Convex FunctionReference Proxies support toString()
+    try {
+      const str = objRef.toString();
+      if (typeof str === "string" && str.length > 0 && str.length < 200) return str;
+    } catch {
+      // Proxy toString() threw — ignore
     }
-  );
+  }
+
+  return fallback;
 }
 
 export function useLocalQuery<T>(queryRef: unknown, args?: unknown) {
   const [data, setData] = useState<T | undefined>(undefined);
 
   useEffect(() => {
-    const maybeRef = queryRef as { __convexName?: string } | ((...args: unknown[]) => unknown) | undefined;
-    if (!maybeRef) {
+    if (!queryRef) {
       setData(undefined);
       return;
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const fnRef = maybeRef as any;
-    const rawName = typeof maybeRef === "function"
-      ? (typeof fnRef.__convexName === "string" ? fnRef.__convexName : null) ?? (typeof maybeRef.name === "string" ? maybeRef.name : null) ?? ""
-      : (typeof fnRef.__convexName === "string" ? fnRef.__convexName : null) ?? "query";
-    const name = rawName || "query";
+    const name = extractName(queryRef, "query");
 
     if (name.includes("projects.list")) {
       setData([
@@ -80,6 +99,27 @@ export function useLocalQuery<T>(queryRef: unknown, args?: unknown) {
       return;
     }
 
+    if (name.includes("sprints.list")) {
+      setData([] as T);
+      return;
+    }
+
+    if (name.includes("projects.get")) {
+      setData({ _id: "project-1", name: "Sample Project", status: "active" } as T);
+      return;
+    }
+
+    if (name.includes("projects.stats")) {
+      setData({ totalTasks: 0, completedTasks: 0, inProgressTasks: 0, completionRate: 0, highRiskTasks: 0 } as T);
+      return;
+    }
+
+    if (name.includes("tasks.list")) {
+      setData([] as T);
+      return;
+    }
+
+    // Default: return undefined for unrecognized queries
     setData(undefined);
   }, [queryRef, args]);
 
@@ -87,10 +127,9 @@ export function useLocalQuery<T>(queryRef: unknown, args?: unknown) {
 }
 
 export function useLocalMutation<TArgs = unknown, TReturn = unknown>(mutationRef: unknown) {
+  const name = extractName(mutationRef, "mutation");
+
   return useMemo(() => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const mName = (mutationRef as any)?.__convexName;
-    const name = typeof mName === "string" ? mName : "mutation";
     return async (args?: TArgs) => {
       if (name.includes("notifications.markAllRead")) {
         return {} as TReturn;
@@ -104,23 +143,50 @@ export function useLocalMutation<TArgs = unknown, TReturn = unknown>(mutationRef
       if (name.includes("ai.saveAssistantResponse")) {
         return [{ role: "assistant", content: "Local fallback response" }] as TReturn;
       }
+      if (name.includes("sprints.create")) {
+        return { _id: "sprint-" + Date.now(), name: "New Sprint" } as TReturn;
+      }
+      if (name.includes("sprints.updateStatus")) {
+        return {} as TReturn;
+      }
+      if (name.includes("projects.create")) {
+        return "project-" + Date.now() as TReturn;
+      }
+      if (name.includes("projects.update")) {
+        return {} as TReturn;
+      }
+      if (name.includes("tasks.create")) {
+        return "task-" + Date.now() as TReturn;
+      }
+      if (name.includes("tasks.update")) {
+        return {} as TReturn;
+      }
+      if (name.includes("tasks.remove")) {
+        return {} as TReturn;
+      }
       return {} as TReturn;
     };
-  }, [mutationRef]);
+  }, [name]);
 }
 
 export function useLocalAction<TArgs = unknown, TReturn = unknown>(actionRef: unknown) {
+  const name = extractName(actionRef, "action");
+
   return useMemo(() => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const aName = (actionRef as any)?.__convexName;
-    const name = typeof aName === "string" ? aName : "action";
     return async (args?: TArgs) => {
       if (name.includes("generateResponse")) {
         return `Local fallback response to: ${(args as { userMessage?: string } | undefined)?.userMessage ?? "your request"}` as TReturn;
       }
+      if (name.includes("analyzeProject")) {
+        return {
+          repoInfo: { name: "Analyzed Project", topics: ["javascript"], fileStructure: ["package.json", "src/index.ts"] },
+          analysis: { executiveSummary: "Project analysis complete.", projectType: "web-app", strengths: [], weaknesses: [], risks: [] },
+          scores: { overall: 75 },
+        } as TReturn;
+      }
       return {} as TReturn;
     };
-  }, [actionRef]);
+  }, [name]);
 }
 
-export { createReference };
+export { extractName };
