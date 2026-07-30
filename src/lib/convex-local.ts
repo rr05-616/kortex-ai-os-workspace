@@ -22,9 +22,9 @@ export function useLocalQuery<T>(queryRef: unknown, args?: unknown) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const fnRef = maybeRef as any;
     const rawName = typeof maybeRef === "function"
-      ? fnRef.__convexName ?? maybeRef.name ?? ""
-      : (maybeRef as { __convexName?: string }).__convexName ?? "query";
-    const name = String(rawName || "query");
+      ? (typeof fnRef.__convexName === "string" ? fnRef.__convexName : null) ?? (typeof maybeRef.name === "string" ? maybeRef.name : null) ?? ""
+      : (typeof fnRef.__convexName === "string" ? fnRef.__convexName : null) ?? "query";
+    const name = rawName || "query";
 
     if (name.includes("projects.list")) {
       setData([
@@ -88,7 +88,9 @@ export function useLocalQuery<T>(queryRef: unknown, args?: unknown) {
 
 export function useLocalMutation<TArgs = unknown, TReturn = unknown>(mutationRef: unknown) {
   return useMemo(() => {
-    const name = String((mutationRef as { __convexName?: string }).__convexName ?? "mutation");
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const mName = (mutationRef as any)?.__convexName;
+    const name = typeof mName === "string" ? mName : "mutation";
     return async (args?: TArgs) => {
       if (name.includes("notifications.markAllRead")) {
         return {} as TReturn;
@@ -109,7 +111,9 @@ export function useLocalMutation<TArgs = unknown, TReturn = unknown>(mutationRef
 
 export function useLocalAction<TArgs = unknown, TReturn = unknown>(actionRef: unknown) {
   return useMemo(() => {
-    const name = String((actionRef as { __convexName?: string }).__convexName ?? "action");
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const aName = (actionRef as any)?.__convexName;
+    const name = typeof aName === "string" ? aName : "action";
     return async (args?: TArgs) => {
       if (name.includes("generateResponse")) {
         return `Local fallback response to: ${(args as { userMessage?: string } | undefined)?.userMessage ?? "your request"}` as TReturn;
