@@ -1,7 +1,6 @@
-import { useEffect, useState, useMemo } from "react";
+import { useState, useMemo } from "react";
 import { api } from "@/convex/_generated/api";
 import { useLocalQuery, useLocalMutation } from "@/lib/convex-local";
-import { fetchProjects, fetchTasks } from "@/lib/backend";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useAuth } from "@/hooks/use-auth";
 import ProjectCard from "@/components/dashboard/ProjectCard";
@@ -56,51 +55,28 @@ export default function Dashboard() {
   const [showSettings, setShowSettings] = useState(false);
   const [showImport, setShowImport] = useState(false);
 
+  // Real-time Convex queries — projects update automatically when imported/created
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const [projects, setProjects] = useState<Array<any>>([]);
-  const [tasks, setTasks] = useState<Array<{ id?: string; title: string; status?: string; priority?: string; description?: string }>>([]);
-  const [loadingProjects, setLoadingProjects] = useState(true);
+  const projects: any[] | undefined = useLocalQuery(api.projects.list, {}) as any[] | undefined;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const tasks: any[] | undefined = useLocalQuery(api.tasks.myTasks, {}) as any[] | undefined;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const notificationsData: any[] = useLocalQuery(api.notifications.recent, { limit: 10 }) as any[];
   const unreadCount: number = (useLocalQuery(api.notifications.unreadCount, {}) as number) ?? 0;
   const markAllRead = useLocalMutation(api.notifications.markAllRead);
-
-  useEffect(() => {
-    let active = true;
-    const loadData = async () => {
-      try {
-        const [projectData, taskData] = await Promise.all([fetchProjects(), fetchTasks()]);
-        if (!active) return;
-        const normalizedProjects = (projectData as Array<{ id?: string; _id?: string; name: string; description?: string; status?: string; health_score?: number; healthScore?: number; priority?: string }>).map((project) => ({
-          _id: project._id ?? project.id ?? `project-${Math.random().toString(36).slice(2)}`,
-          name: project.name,
-          description: project.description ?? "",
-          status: project.status ?? "planning",
-          healthScore: project.healthScore ?? project.health_score ?? 85,
-          priority: project.priority ?? "medium",
-        }));
-        setProjects(normalizedProjects as typeof projects);
-        setTasks(taskData as typeof tasks);
-      } catch (error) {
-        console.error("Failed to load dashboard data", error);
-      } finally {
-        if (active) setLoadingProjects(false);
-      }
-    };
-    loadData();
-    return () => { active = false; };
-  }, []);
 
   const handleSignOut = async () => {
     await signOut();
     navigate("/");
   };
 
-  const totalProjects = projects?.length ?? 0;
-  const activeProjects = projects?.filter((p) => p.status === "active").length ?? 0;
-  const planningProjects = projects?.filter((p) => p.status === "planning").length ?? 0;
-  const completedProjects = projects?.filter((p) => p.status === "completed").length ?? 0;
-  const totalTasks = tasks?.length ?? 0;
+  const projectList = projects ?? [];
+  const taskList = tasks ?? [];
+  const totalProjects = projectList.length;
+  const activeProjects = projectList.filter((p: any) => p.status === "active").length;
+  const planningProjects = projectList.filter((p: any) => p.status === "planning").length;
+  const completedProjects = projectList.filter((p: any) => p.status === "completed").length;
+  const totalTasks = taskList.length;
 
   // Project detail view
   if (selectedProjectId) {
@@ -309,11 +285,11 @@ export default function Dashboard() {
                       View all<ChevronRight className="w-3 h-3" />
                     </button>
                   </div>
-                  {!projects ? (
+                  {projects === undefined ? (
                     <div className="flex items-center justify-center py-12">
                       <div className="animate-pulse text-xs text-[rgba(232,245,238,0.25)]">Loading projects...</div>
                     </div>
-                  ) : projects.length === 0 ? (
+                  ) : projectList.length === 0 ? (
                     <div className="text-center py-12">
                       <FolderKanban className="w-10 h-10 text-[rgba(232,245,238,0.1)] mx-auto mb-3" />
                       <p className="text-sm text-[rgba(232,245,238,0.25)] mb-4">No projects yet</p>
@@ -323,7 +299,7 @@ export default function Dashboard() {
                     </div>
                   ) : (
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      {projects.slice(0, 4).map((project: any, i: number) => (
+                      {projectList.slice(0, 4).map((project: any, i: number) => (
                         <ProjectCard key={project._id} project={project} index={i} onClick={() => setSelectedProjectId(project._id)} />
                       ))}
                     </div>
@@ -351,11 +327,11 @@ export default function Dashboard() {
                   <p className="text-sm font-medium text-[#E8F5EE]">New Project</p>
                   <p className="text-[11px] text-[rgba(232,245,238,0.3)] mt-1">Create with AI assistance</p>
                 </motion.button>
-                {!projects ? (
+                {projects === undefined ? (
                   <div className="col-span-full flex items-center justify-center py-20">
                     <div className="animate-pulse text-xs text-[rgba(232,245,238,0.25)]">Loading projects...</div>
                   </div>
-                ) : projects.map((project: any, i: number) => (
+                ) : projectList.map((project: any, i: number) => (
                   <ProjectCard key={project._id} project={project} index={i + 1} onClick={() => setSelectedProjectId(project._id)} />
                 ))}
               </div>
