@@ -21,9 +21,10 @@ export function useLocalQuery<T>(queryRef: unknown, args?: unknown) {
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const fnRef = maybeRef as any;
-    const name = typeof maybeRef === "function"
-      ? fnRef.__convexName ?? maybeRef.name
+    const rawName = typeof maybeRef === "function"
+      ? fnRef.__convexName ?? maybeRef.name ?? ""
       : (maybeRef as { __convexName?: string }).__convexName ?? "query";
+    const name = String(rawName || "query");
 
     if (name.includes("projects.list")) {
       setData([
@@ -87,7 +88,7 @@ export function useLocalQuery<T>(queryRef: unknown, args?: unknown) {
 
 export function useLocalMutation<TArgs = unknown, TReturn = unknown>(mutationRef: unknown) {
   return useMemo(() => {
-    const name = (mutationRef as { __convexName?: string }).__convexName ?? "mutation";
+    const name = String((mutationRef as { __convexName?: string }).__convexName ?? "mutation");
     return async (args?: TArgs) => {
       if (name.includes("notifications.markAllRead")) {
         return {} as TReturn;
@@ -108,7 +109,7 @@ export function useLocalMutation<TArgs = unknown, TReturn = unknown>(mutationRef
 
 export function useLocalAction<TArgs = unknown, TReturn = unknown>(actionRef: unknown) {
   return useMemo(() => {
-    const name = (actionRef as { __convexName?: string }).__convexName ?? "action";
+    const name = String((actionRef as { __convexName?: string }).__convexName ?? "action");
     return async (args?: TArgs) => {
       if (name.includes("generateResponse")) {
         return `Local fallback response to: ${(args as { userMessage?: string } | undefined)?.userMessage ?? "your request"}` as TReturn;
