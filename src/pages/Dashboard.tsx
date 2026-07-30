@@ -4,6 +4,7 @@ import { useLocalQuery, useLocalMutation } from "@/lib/convex-local";
 import { fetchProjects, fetchTasks, createProject as createProjectApi } from "@/lib/backend";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useAuth } from "@/hooks/use-auth";
+import { listSprints as listSprintsApi, createSprint as createSprintApi, updateSprintStatus as updateSprintStatusApi } from "@/lib/supabase-api";
 import ProjectCard from "@/components/dashboard/ProjectCard";
 import ProjectDetail from "@/components/dashboard/ProjectDetail";
 import NewProjectDialog from "@/components/dashboard/NewProjectDialog";
@@ -56,11 +57,13 @@ export default function Dashboard() {
   const [showSettings, setShowSettings] = useState(false);
   const [showImport, setShowImport] = useState(false);
 
-  const [projects, setProjects] = useState<Array<Record<string, unknown>>>([]);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [projects, setProjects] = useState<Array<any>>([]);
   const [tasks, setTasks] = useState<Array<{ id?: string; title: string; status?: string; priority?: string; description?: string }>>([]);
   const [loadingProjects, setLoadingProjects] = useState(true);
-  const notificationsData = useLocalQuery(api.notifications.recent, { limit: 10 });
-  const unreadCount = useLocalQuery(api.notifications.unreadCount, {});
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const notificationsData: any[] = useLocalQuery(api.notifications.recent, { limit: 10 }) as any[];
+  const unreadCount: number = (useLocalQuery(api.notifications.unreadCount, {}) as number) ?? 0;
   const markAllRead = useLocalMutation(api.notifications.markAllRead);
 
   useEffect(() => {
@@ -321,7 +324,7 @@ export default function Dashboard() {
                     </div>
                   ) : (
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      {projects.slice(0, 4).map((project, i) => (
+                      {projects.slice(0, 4).map((project: any, i: number) => (
                         <ProjectCard key={project._id} project={project} index={i} onClick={() => setSelectedProjectId(project._id)} />
                       ))}
                     </div>
@@ -353,7 +356,7 @@ export default function Dashboard() {
                   <div className="col-span-full flex items-center justify-center py-20">
                     <div className="animate-pulse text-xs text-[rgba(232,245,238,0.25)]">Loading projects...</div>
                   </div>
-                ) : projects.map((project, i) => (
+                ) : projects.map((project: any, i: number) => (
                   <ProjectCard key={project._id} project={project} index={i + 1} onClick={() => setSelectedProjectId(project._id)} />
                 ))}
               </div>
@@ -404,10 +407,23 @@ export default function Dashboard() {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function SprintsView({ projects, onSelectProject }: { projects: any[] | undefined; onSelectProject: (id: Id<"projects">) => void }) {
-  const [selectedProject, setSelectedProject] = useState<Id<"projects"> | null>(null);
-  const sprints = useQuery(api.sprints.list, selectedProject ? { projectId: selectedProject } : "skip");
-  const createSprint = useMutation(api.sprints.create);
-  const updateSprintStatus = useMutation(api.sprints.updateStatus);
+  const [selectedProject, setSelectedProject] = useState<string | null>(null);
+  const [sprints, setSprints] = useState<any[] | undefined>(undefined);
+
+  useEffect(() => {
+    if (!selectedProject) { setSprints(undefined); return; }
+    let cancelled = false;
+    listSprintsApi(selectedProject).then((data) => { if (!cancelled) setSprints(data); }).catch(() => { if (!cancelled) setSprints([]); });
+    return () => { cancelled = true; };
+  }, [selectedProject]);
+
+  const handleUpdateSprintStatus = async (sprintId: string, status: "planning" | "active" | "completed") => {
+    await updateSprintStatusApi(sprintId, status);
+    if (selectedProject) {
+      const updated = await listSprintsApi(selectedProject).catch(() => []);
+      setSprints(updated);
+    }
+  };
   const [showCreate, setShowCreate] = useState(false);
   const [sprintName, setSprintName] = useState("");
   const [sprintGoal, setSprintGoal] = useState("");
@@ -416,12 +432,12 @@ function SprintsView({ projects, onSelectProject }: { projects: any[] | undefine
     if (!selectedProject || !sprintName.trim()) return;
     const now = Date.now();
     const duration = 14 * 24 * 60 * 60 * 1000; // 14 days default
-    await createSprint({
-      projectId: selectedProject,
+    await createSprintApi({
+      project_id: selectedProject,
       name: sprintName.trim(),
       goal: sprintGoal.trim() || undefined,
-      startDate: now,
-      endDate: now + duration,
+      start_date: now,
+      end_date: now + duration,
     });
     setSprintName("");
     setSprintGoal("");
@@ -486,7 +502,7 @@ function SprintsView({ projects, onSelectProject }: { projects: any[] | undefine
                 </div>
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                  {sprints.map((sprint, i) => {
+                  {sprints.map((sprint: any, i: number) => {
                     const progress = sprint.taskCount > 0 ? Math.round((sprint.completedTasks / sprint.taskCount) * 100) : 0;
                     const sprintStatusColors: Record<string, string> = {
                       planning: "text-amber-400 bg-amber-500/10",
@@ -512,11 +528,11 @@ function SprintsView({ projects, onSelectProject }: { projects: any[] | undefine
                         </div>
                         <div className="flex gap-1.5">
                           {sprint.status === "planning" && (
-                            <button onClick={() => updateSprintStatus({ sprintId: sprint._id, status: "active" })}
+                            <button onClick={() => handleUpdateSprintStatus(sprint._id, "active")}
                               className="btn-liquid btn-liquid-solid h-7 px-2.5 text-[10px] flex-1">Start Sprint</button>
                           )}
                           {sprint.status === "active" && (
-                            <button onClick={() => updateSprintStatus({ sprintId: sprint._id, status: "completed" })}
+                            <button onClick={() => handleUpdateSprintStatus(sprint._id, "completed")}
                               className="btn-liquid h-7 px-2.5 text-[10px] flex-1">Complete</button>
                           )}
                           <button onClick={() => onSelectProject(sprint.projectId)} className="btn-liquid h-7 px-2.5 text-[10px]">View Project</button>

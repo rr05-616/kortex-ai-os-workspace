@@ -35,15 +35,18 @@ const statusTransitions: Record<string, string[]> = {
 };
 
 export default function ProjectDetail({ projectId, onBack }: ProjectDetailProps) {
-  const project = useLocalQuery(api.projects.get, { projectId });
-  const tasks = useLocalQuery(api.tasks.list, { projectId });
-  const stats = useLocalQuery(api.projects.stats, { projectId });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const project: any = useLocalQuery(api.projects.get, { projectId });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const tasks: any[] = (useLocalQuery(api.tasks.list, { projectId }) as any[] | undefined) ?? [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const stats: any = useLocalQuery(api.projects.stats, { projectId });
   const createTask = useLocalMutation(api.tasks.create);
   const updateTask = useLocalMutation(api.tasks.update);
   const removeTask = useLocalMutation(api.tasks.remove);
   const [newTaskTitle, setNewTaskTitle] = useState("");
   const [creatingTask, setCreatingTask] = useState(false);
-  const [expandedTask, setExpandedTask] = useState<Id<"tasks"> | null>(null);
+  const [expandedTask, setExpandedTask] = useState<string | null>(null);
 
   const handleCreateTask = async () => {
     if (!newTaskTitle.trim()) return;
@@ -58,7 +61,7 @@ export default function ProjectDetail({ projectId, onBack }: ProjectDetailProps)
     }
   };
 
-  const handleStatusChange = async (taskId: Id<"tasks">, newStatus: string) => {
+  const handleStatusChange = async (taskId: string, newStatus: string) => {
     try {
       await updateTask({ taskId, status: newStatus as "backlog" | "todo" | "in_progress" | "in_review" | "done" | "cancelled" });
     } catch (err) {
@@ -66,7 +69,7 @@ export default function ProjectDetail({ projectId, onBack }: ProjectDetailProps)
     }
   };
 
-  const handleDeleteTask = async (taskId: Id<"tasks">) => {
+  const handleDeleteTask = async (taskId: string) => {
     try {
       await removeTask({ taskId });
     } catch (err) {
@@ -78,7 +81,8 @@ export default function ProjectDetail({ projectId, onBack }: ProjectDetailProps)
     return <div className="flex items-center justify-center py-20"><Loader2 className="w-6 h-6 animate-spin text-[#0E9F6E]" /></div>;
   }
 
-  const tasksByStatus = (tasks ?? []).reduce<Record<string, NonNullable<typeof tasks>>>((acc, task) => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const tasksByStatus = (tasks ?? []).reduce<Record<string, any[]>>((acc: Record<string, any[]>, task: any) => {
     if (!acc[task.status]) acc[task.status] = [];
     acc[task.status].push(task);
     return acc;
@@ -140,7 +144,7 @@ export default function ProjectDetail({ projectId, onBack }: ProjectDetailProps)
                 <span className="text-[10px] text-[rgba(232,245,238,0.25)] bg-[rgba(255,255,255,0.03)] px-1.5 py-0.5 rounded-full">{statusTasks.length}</span>
               </div>
               <div className="space-y-1">
-                {statusTasks.map((task, i) => (
+                {statusTasks.map((task: any, i: number) => (
                   <motion.div key={task._id} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.3, delay: i * 0.03 }}
                     className="group">
                     <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-[rgba(255,255,255,0.02)] transition-colors">
@@ -183,7 +187,7 @@ export default function ProjectDetail({ projectId, onBack }: ProjectDetailProps)
                             <div className="flex flex-wrap gap-2 text-[10px] text-[rgba(232,245,238,0.25)]">
                               {task.dueDate && <span>Due: {new Date(task.dueDate).toLocaleDateString()}</span>}
                               {task.estimatedHours && <span>Est: {task.estimatedHours}h</span>}
-                              {task.tags && task.tags.length > 0 && task.tags.map((tag) => (
+                              {task.tags && task.tags.length > 0 && task.tags.map((tag: string) => (
                                 <span key={tag} className="px-1.5 py-0.5 rounded bg-[rgba(255,255,255,0.03)]">{tag}</span>
                               ))}
                             </div>

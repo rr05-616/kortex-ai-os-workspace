@@ -296,7 +296,7 @@ export function AICopilot({ projectId, onClose, expanded }: AICopilotProps) {
   const [messages, setMessages] = useState<Array<{ role: "user" | "assistant"; content: string }>>([]);
   const [isThinking, setIsThinking] = useState(false);
   const [currentStep, setCurrentStep] = useState<AgentStep>("searching");
-  const [conversationId, setConversationId] = useState<Id<"aiConversations"> | null>(null);
+  const [conversationId, setConversationId] = useState<string | null>(null);
   const [showInsights, setShowInsights] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -358,11 +358,12 @@ export function AICopilot({ projectId, onClose, expanded }: AICopilotProps) {
             }))
           );
         } else {
-          const id = await createConversation({
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const id: any = await createConversation({
             projectId,
             title: projectId && projectData ? projectData.project.name : "Global Chat",
           });
-          setConversationId(id);
+          setConversationId(id as string);
         }
       }
     };
@@ -381,12 +382,12 @@ export function AICopilot({ projectId, onClose, expanded }: AICopilotProps) {
 
     try {
       // Ensure conversation exists — use the local ID directly
-      let activeConversationId = conversationId;
+      let activeConversationId: string | null = conversationId;
       if (!activeConversationId) {
         activeConversationId = await createConversation({
           projectId,
           title: projectId && projectData ? projectData.project.name : "Global Chat",
-        });
+        }) as string | null;
         setConversationId(activeConversationId);
       }
 
@@ -400,7 +401,8 @@ export function AICopilot({ projectId, onClose, expanded }: AICopilotProps) {
       setCurrentStep("generating");
 
       // Send message and get context
-      const result = await sendMessageMutation({
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const result: any = await sendMessageMutation({
         conversationId: activeConversationId,
         content: text,
       });
@@ -423,27 +425,29 @@ export function AICopilot({ projectId, onClose, expanded }: AICopilotProps) {
             userMessage: text,
             conversationHistory: result.conversationHistory,
             context: result.context,
-          });
+          }) as string;
         }
       } else {
         // FastAPI not ready — use Convex action directly
-        response = await generateResponse({
+        response = (await generateResponse({
           projectId: projectId ?? undefined,
           userMessage: text,
           conversationHistory: result.conversationHistory,
           context: result.context,
-        });
+        })) as string;
       }
 
       // Save assistant response
-      const updatedMessages = await saveAssistantResponse({
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const updatedMessages: any = await saveAssistantResponse({
         conversationId: activeConversationId,
         content: response,
       });
 
       // Update local state
       setMessages(
-        updatedMessages.map((m) => ({
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        updatedMessages.map((m: any) => ({
           role: m.role as "user" | "assistant",
           content: m.content,
         }))

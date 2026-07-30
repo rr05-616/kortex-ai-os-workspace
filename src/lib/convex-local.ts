@@ -19,8 +19,10 @@ export function useLocalQuery<T>(queryRef: unknown, args?: unknown) {
       return;
     }
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const fnRef = maybeRef as any;
     const name = typeof maybeRef === "function"
-      ? maybeRef.__convexName ?? maybeRef.name
+      ? fnRef.__convexName ?? maybeRef.name
       : (maybeRef as { __convexName?: string }).__convexName ?? "query";
 
     if (name.includes("projects.list")) {

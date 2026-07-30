@@ -169,7 +169,8 @@ export default function ImportProjectDialog({ open, onOpenChange }: ImportProjec
 
     try {
       // Create project first
-      const projectId = await createProject({
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const projectId: any = await createProject({
         name: "Analyzing...",
         description: `Importing from ${url}`,
         priority: "medium",
@@ -178,7 +179,8 @@ export default function ImportProjectDialog({ open, onOpenChange }: ImportProjec
       setCreatedProjectId(projectId);
 
       // Run analysis (this takes time due to API calls)
-      const analysisResult = await analyzeProject({ url: url.trim(), projectId });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const analysisResult: any = await analyzeProject({ url: url.trim(), projectId });
       setResult(analysisResult);
 
       // Update project with real info
@@ -191,7 +193,7 @@ export default function ImportProjectDialog({ open, onOpenChange }: ImportProjec
         aiTags: [
           analysisResult.analysis.projectType,
           ...analysisResult.repoInfo.topics.slice(0, 5),
-          ...analysisResult.repoInfo.fileStructure.filter((f) => f.endsWith(".json")).slice(0, 3),
+          ...analysisResult.repoInfo.fileStructure.filter((f: string) => f.endsWith(".json")).slice(0, 3),
         ],
         status: "active",
       });
