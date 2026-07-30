@@ -1,98 +1,38 @@
-import { useEffect, useState } from "react";
-
-type AuthUser = {
-  _id?: string;
-  name?: string;
-  email?: string;
-  image?: string;
-};
-
-const STORAGE_KEY = "kortex-local-auth";
-
-function isConvexConfigured() {
-  const value = (import.meta.env.VITE_CONVEX_URL as string | undefined | null)?.trim() || "";
-  return Boolean(value && !value.includes("example"));
-}
-
-function getStoredSession() {
-  if (typeof window === "undefined") {
-    return null;
-  }
-
-  try {
-    return JSON.parse(window.localStorage.getItem(STORAGE_KEY) || "null") as { user?: AuthUser } | null;
-  } catch {
-    return null;
-  }
-}
-
-function deriveUser(provider: string, data: unknown): AuthUser {
-  if (data instanceof FormData) {
-    const email = (data.get("email") as string | null)?.trim();
-    if (email) {
-      return { name: email.split("@")[0], email };
-    }
-  }
-
-  if (typeof data === "object" && data && "email" in data) {
-    const email = String((data as { email?: string }).email || "").trim();
-    if (email) {
-      return { name: email.split("@")[0], email };
-    }
-  }
-
-  if (provider === "anonymous") {
-    return { name: "Guest User", email: "guest@kortex.local" };
-  }
-
-  return { name: "Local User", email: "local@kortex.local" };
-}
+/**
+ * KORTEX AI — Authentication Hook
+ *
+ * Single source of truth for auth state via Convex Auth (Freebuff).
+ * Uses useAuthToken for session state and useAuthActions for signIn/signOut.
+ * No localStorage, no Supabase, no duplicated state.
+ */
+import { useAuthActions, useAuthToken } from "@convex-dev/auth/react";
+import { useMemo } from "react";
 
 export function useAuth() {
-  const [isLoading, setIsLoading] = useState(true);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [user, setUser] = useState<AuthUser | null>(null);
+  const token = useAuthToken();
+  const { signIn, signOut } = useAuthActions();
 
-  useEffect(() => {
-    if (isConvexConfigured()) {
-      setIsLoading(false);
-      return;
+  // Token presence indicates authentication — no localStorage, no manual state
+  const isAuthenticated = token !== null;
+  const isLoading = false; // ConvexAuthProvider handles loading internally
+
+  // Decode minimal user info from token if available
+  const user = useMemo(() => {
+    if (!token) return null;
+    try {
+      // JWT payload is base64url-encoded in the second segment
+      const payload = JSON.parse(atob(token.split(".")[1]));
+      return {
+        _id: payload.sub ?? payload.id,
+        name: payload.name ?? payload.email?.split("@")[0] ?? "User",
+        email: payload.email,
+        image: payload.picture,
+      };
+    } catch {
+      // Token is present but not a standard JWT — still authenticated
+      return { name: "User", email: undefined };
     }
-
-    const stored = getStoredSession();
-    if (stored?.user) {
-      setUser(stored.user);
-      setIsAuthenticated(true);
-    } else {
-      setUser(null);
-      setIsAuthenticated(false);
-    }
-
-    setIsLoading(false);
-  }, []);
-
-  const signIn = async (provider: string, data?: unknown) => {
-    const nextUser = deriveUser(provider, data);
-    const session = { user: nextUser };
-
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(session));
-    }
-
-    setUser(nextUser);
-    setIsAuthenticated(true);
-    setIsLoading(false);
-  };
-
-  const signOut = async () => {
-    if (typeof window !== "undefined") {
-      window.localStorage.removeItem(STORAGE_KEY);
-    }
-
-    setUser(null);
-    setIsAuthenticated(false);
-    setIsLoading(false);
-  };
+  }, [token]);
 
   return {
     isLoading,

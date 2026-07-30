@@ -4,7 +4,6 @@ import { useLocalQuery, useLocalMutation } from "@/lib/convex-local";
 import { fetchProjects, fetchTasks, createProject as createProjectApi } from "@/lib/backend";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useAuth } from "@/hooks/use-auth";
-import { listSprints as listSprintsApi, createSprint as createSprintApi, updateSprintStatus as updateSprintStatusApi } from "@/lib/supabase-api";
 import ProjectCard from "@/components/dashboard/ProjectCard";
 import ProjectDetail from "@/components/dashboard/ProjectDetail";
 import NewProjectDialog from "@/components/dashboard/NewProjectDialog";
