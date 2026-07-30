@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from "react";
-import { useMutation, useAction } from "convex/react";
+import { useQuery, useMutation, useAction } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { motion, AnimatePresence } from "framer-motion";
@@ -569,36 +569,11 @@ export function AICopilot({ projectId, onClose, expanded }: AICopilotProps) {
   const convexSaveResponse = useMutation(api.ai.saveAssistantResponse);
   const convexGenerateResponse = useAction(api.aiActions.generateResponse);
 
-  // ── Workspace data queries ──
-  // Use local queries for display data (these work fine)
-  const [projectData, setProjectData] = useState<ProjectInsightData | null>(null);
-  const [globalData, setGlobalData] = useState<GlobalInsightData | null>(null);
-
-  // Fetch workspace data on mount
-  useEffect(() => {
-    let cancelled = false;
-    async function fetchData() {
-      try {
-        const { useLocalQuery } = await import("@/lib/convex-local");
-        // This is a one-time import to avoid circular deps
-        const pd = useLocalQuery<ProjectInsightData>(
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          (api as any).ai?.getProjectInsights,
-          projectId ? { projectId } : "skip"
-        );
-        const gd = useLocalQuery<GlobalInsightData>(
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          (api as any).ai?.getGlobalInsights
-        );
-        if (!cancelled) {
-          setProjectData(pd ?? null);
-          setGlobalData(gd ?? null);
-        }
-      } catch { /* ignore */ }
-    }
-    fetchData();
-    return () => { cancelled = true; };
-  }, [projectId]);
+  // ── Workspace data queries (real Convex) ──
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const projectData = useQuery(api.ai.getProjectInsights as any, projectId ? { projectId } : "skip") as ProjectInsightData | null | undefined;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const globalData = useQuery(api.ai.getGlobalInsights as any) as GlobalInsightData | null | undefined;
 
   // Memory key
   const memoryKey = projectId ? `project_${projectId}` : "global";
@@ -741,7 +716,7 @@ export function AICopilot({ projectId, onClose, expanded }: AICopilotProps) {
   };
 
   const insightData = projectId ? projectData : globalData;
-  const insights = insightData?.insights ?? [];
+  const insights = (insightData as ProjectInsightData | GlobalInsightData | null | undefined)?.insights ?? [];
   const backendReady = true;
 
   return (

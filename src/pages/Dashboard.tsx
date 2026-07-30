@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo } from "react";
 import { api } from "@/convex/_generated/api";
 import { useLocalQuery, useLocalMutation } from "@/lib/convex-local";
-import { fetchProjects, fetchTasks, createProject as createProjectApi } from "@/lib/backend";
+import { fetchProjects, fetchTasks } from "@/lib/backend";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useAuth } from "@/hooks/use-auth";
 import ProjectCard from "@/components/dashboard/ProjectCard";
@@ -406,24 +406,17 @@ export default function Dashboard() {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function SprintsView({ projects, onSelectProject }: { projects: any[] | undefined; onSelectProject: (id: Id<"projects">) => void }) {
-  const [selectedProject, setSelectedProject] = useState<string | null>(null);
-  const [sprints, setSprints] = useState<any[] | undefined>(undefined);
+  const [selectedProject, setSelectedProject] = useState<Id<"projects"> | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [sprintName, setSprintName] = useState("");
   const [sprintGoal, setSprintGoal] = useState("");
   const createSprintMut = useLocalMutation(api.sprints.create);
   const updateSprintMut = useLocalMutation(api.sprints.updateStatus);
 
-  useEffect(() => {
-    if (!selectedProject) { setSprints(undefined); return; }
-    let cancelled = false;
-    // Fetch sprints via local query
-    useLocalQuery(api.sprints.list, { projectId: selectedProject });
-    if (!cancelled) setSprints([]);
-    return () => { cancelled = true; };
-  }, [selectedProject]);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sprints: any[] | undefined = useLocalQuery(api.sprints.list, selectedProject ? { projectId: selectedProject } : "skip") as any[] | undefined;
 
-  const handleUpdateSprintStatus = async (sprintId: string, status: "planning" | "active" | "completed") => {
+  const handleUpdateSprintStatus = async (sprintId: Id<"sprints">, status: "planning" | "active" | "completed") => {
     await updateSprintMut({ sprintId, status });
   };
 
@@ -456,8 +449,7 @@ function SprintsView({ projects, onSelectProject }: { projects: any[] | undefine
           {/* Project selector */}
           <div className="flex flex-wrap gap-2 mb-4">
             <span className="text-xs text-[rgba(232,245,238,0.3)] self-center mr-2">Select project:</span>
-            {projects.map((p) => (
-              <button key={p._id} onClick={() => setSelectedProject(p._id)}
+            {projects.map((p) => (                    <button key={p._id} onClick={() => setSelectedProject(p._id as Id<"projects">)}
                 className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${selectedProject === p._id ? "bg-[rgba(14,159,110,0.15)] text-[#0E9F6E] border border-[rgba(14,159,110,0.25)]" : "glass text-[rgba(232,245,238,0.4)] hover:text-[#E8F5EE]"}`}>
                 {p.name}
               </button>
@@ -534,7 +526,7 @@ function SprintsView({ projects, onSelectProject }: { projects: any[] | undefine
                             <button onClick={() => handleUpdateSprintStatus(sprint._id, "completed")}
                               className="btn-liquid h-7 px-2.5 text-[10px] flex-1">Complete</button>
                           )}
-                          <button onClick={() => onSelectProject(sprint.projectId)} className="btn-liquid h-7 px-2.5 text-[10px]">View Project</button>
+                          <button onClick={() => onSelectProject(sprint.projectId as Id<"projects">)} className="btn-liquid h-7 px-2.5 text-[10px]">View Project</button>
                         </div>
                       </motion.div>
                     );

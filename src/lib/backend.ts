@@ -82,43 +82,53 @@ export async function checkBackendHealth(): Promise<boolean> {
 }
 
 export async function fetchProjects(): Promise<ProjectSummary[]> {
-  const response = await fetch(`${BACKEND_URL}/api/projects`);
-  if (!response.ok) {
-    throw new Error(`Failed to load projects: ${response.status}`);
+  try {
+    const response = await fetch(`${BACKEND_URL}/api/projects`);
+    if (!response.ok) return [];
+    return response.json();
+  } catch {
+    // Backend unavailable — return empty; Convex is the primary data source
+    return [];
   }
-  return response.json();
 }
 
 export async function fetchTasks(): Promise<TaskSummary[]> {
-  const response = await fetch(`${BACKEND_URL}/api/tasks`);
-  if (!response.ok) {
-    throw new Error(`Failed to load tasks: ${response.status}`);
+  try {
+    const response = await fetch(`${BACKEND_URL}/api/tasks`);
+    if (!response.ok) return [];
+    return response.json();
+  } catch {
+    // Backend unavailable — return empty; Convex is the primary data source
+    return [];
   }
-  return response.json();
 }
 
 export async function createProject(payload: { name: string; description?: string }) {
-  const response = await fetch(`${BACKEND_URL}/api/projects`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  if (!response.ok) {
-    throw new Error(`Failed to create project: ${response.status}`);
+  try {
+    const response = await fetch(`${BACKEND_URL}/api/projects`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) return {};
+    return response.json();
+  } catch {
+    return {};
   }
-  return response.json();
 }
 
 export async function createTask(payload: { title: string; description?: string; status?: string; priority?: string }) {
-  const response = await fetch(`${BACKEND_URL}/api/tasks`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  if (!response.ok) {
-    throw new Error(`Failed to create task: ${response.status}`);
+  try {
+    const response = await fetch(`${BACKEND_URL}/api/tasks`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) return {};
+    return response.json();
+  } catch {
+    return {};
   }
-  return response.json();
 }
 
 /**

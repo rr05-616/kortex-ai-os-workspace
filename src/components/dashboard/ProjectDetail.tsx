@@ -46,7 +46,7 @@ export default function ProjectDetail({ projectId, onBack }: ProjectDetailProps)
   const removeTask = useLocalMutation(api.tasks.remove);
   const [newTaskTitle, setNewTaskTitle] = useState("");
   const [creatingTask, setCreatingTask] = useState(false);
-  const [expandedTask, setExpandedTask] = useState<string | null>(null);
+  const [expandedTask, setExpandedTask] = useState<Id<"tasks"> | null>(null);
 
   const handleCreateTask = async () => {
     if (!newTaskTitle.trim()) return;
@@ -61,7 +61,7 @@ export default function ProjectDetail({ projectId, onBack }: ProjectDetailProps)
     }
   };
 
-  const handleStatusChange = async (taskId: string, newStatus: string) => {
+  const handleStatusChange = async (taskId: Id<"tasks">, newStatus: string) => {
     try {
       await updateTask({ taskId, status: newStatus as "backlog" | "todo" | "in_progress" | "in_review" | "done" | "cancelled" });
     } catch (err) {
@@ -69,7 +69,7 @@ export default function ProjectDetail({ projectId, onBack }: ProjectDetailProps)
     }
   };
 
-  const handleDeleteTask = async (taskId: string) => {
+  const handleDeleteTask = async (taskId: Id<"tasks">) => {
     try {
       await removeTask({ taskId });
     } catch (err) {
@@ -149,7 +149,7 @@ export default function ProjectDetail({ projectId, onBack }: ProjectDetailProps)
                     className="group">
                     <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-[rgba(255,255,255,0.02)] transition-colors">
                       <GripVertical className="w-3 h-3 text-[rgba(232,245,238,0.1)] group-hover:text-[rgba(232,245,238,0.2)] shrink-0" />
-                      <div className="flex-1 min-w-0" onClick={() => setExpandedTask(expandedTask === task._id ? null : task._id)}>
+                      <div className="flex-1 min-w-0" onClick={() => setExpandedTask(expandedTask === task._id ? null : task._id as Id<"tasks">)}>
                         <p className="text-sm text-[rgba(232,245,238,0.7)] truncate cursor-pointer">{task.title}</p>
                         <div className="flex items-center gap-2 mt-0.5">
                           <span className="text-[10px] text-[rgba(232,245,238,0.25)] capitalize">{task.priority}</span>
@@ -162,7 +162,7 @@ export default function ProjectDetail({ projectId, onBack }: ProjectDetailProps)
                         <div className="relative shrink-0">
                           <select
                             value={status}
-                            onChange={(e) => handleStatusChange(task._id, e.target.value)}
+                            onChange={(e) => handleStatusChange(task._id as Id<"tasks">, e.target.value)}
                             className="appearance-none bg-transparent text-[10px] text-[rgba(232,245,238,0.4)] border border-[rgba(255,255,255,0.06)] rounded-lg px-2 py-1 pr-5 cursor-pointer hover:border-[rgba(14,159,110,0.2)] transition-colors focus:outline-none focus:border-[rgba(14,159,110,0.3)]"
                           >
                             {statusOrder.map((s) => (
@@ -172,7 +172,7 @@ export default function ProjectDetail({ projectId, onBack }: ProjectDetailProps)
                           <ChevronDown className="w-2.5 h-2.5 text-[rgba(232,245,238,0.3)] absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                         </div>
                       )}
-                      <button onClick={() => handleDeleteTask(task._id)}
+                      <button onClick={() => handleDeleteTask(task._id as Id<"tasks">)}
                         className="w-6 h-6 rounded flex items-center justify-center opacity-0 group-hover:opacity-100 hover:bg-red-500/10 transition-all shrink-0">
                         <Trash2 className="w-3 h-3 text-red-400" />
                       </button>

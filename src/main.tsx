@@ -11,10 +11,10 @@ import { BrowserRouter, Route, Routes, useLocation } from "react-router";
 import "./index.css";
 
 // Static imports — no lazy loading for Freebuff preview stability
-import Landing from "./pages/Landing.tsx";
-import AuthPage from "./pages/Auth.tsx";
-import Dashboard from "./pages/Dashboard.tsx";
-import NotFound from "./pages/NotFound.tsx";
+import Landing from "@/pages/Landing.tsx";
+import AuthPage from "@/pages/Auth.tsx";
+import Dashboard from "@/pages/Dashboard.tsx";
+import NotFound from "@/pages/NotFound.tsx";
 
 /** Silent error boundary — if VlyToolbar crashes it renders nothing instead of
  *  crashing the whole app (e.g. hook errors in WebContainer environment). */
