@@ -408,35 +408,35 @@ export default function Dashboard() {
 function SprintsView({ projects, onSelectProject }: { projects: any[] | undefined; onSelectProject: (id: Id<"projects">) => void }) {
   const [selectedProject, setSelectedProject] = useState<string | null>(null);
   const [sprints, setSprints] = useState<any[] | undefined>(undefined);
+  const [showCreate, setShowCreate] = useState(false);
+  const [sprintName, setSprintName] = useState("");
+  const [sprintGoal, setSprintGoal] = useState("");
+  const createSprintMut = useLocalMutation(api.sprints.create);
+  const updateSprintMut = useLocalMutation(api.sprints.updateStatus);
 
   useEffect(() => {
     if (!selectedProject) { setSprints(undefined); return; }
     let cancelled = false;
-    listSprintsApi(selectedProject).then((data) => { if (!cancelled) setSprints(data); }).catch(() => { if (!cancelled) setSprints([]); });
+    // Fetch sprints via local query
+    useLocalQuery(api.sprints.list, { projectId: selectedProject });
+    if (!cancelled) setSprints([]);
     return () => { cancelled = true; };
   }, [selectedProject]);
 
   const handleUpdateSprintStatus = async (sprintId: string, status: "planning" | "active" | "completed") => {
-    await updateSprintStatusApi(sprintId, status);
-    if (selectedProject) {
-      const updated = await listSprintsApi(selectedProject).catch(() => []);
-      setSprints(updated);
-    }
+    await updateSprintMut({ sprintId, status });
   };
-  const [showCreate, setShowCreate] = useState(false);
-  const [sprintName, setSprintName] = useState("");
-  const [sprintGoal, setSprintGoal] = useState("");
 
   const handleCreateSprint = async () => {
     if (!selectedProject || !sprintName.trim()) return;
     const now = Date.now();
-    const duration = 14 * 24 * 60 * 60 * 1000; // 14 days default
-    await createSprintApi({
-      project_id: selectedProject,
+    const duration = 14 * 24 * 60 * 60 * 1000;
+    await createSprintMut({
+      projectId: selectedProject,
       name: sprintName.trim(),
       goal: sprintGoal.trim() || undefined,
-      start_date: now,
-      end_date: now + duration,
+      startDate: now,
+      endDate: now + duration,
     });
     setSprintName("");
     setSprintGoal("");

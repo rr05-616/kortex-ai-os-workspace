@@ -19,8 +19,9 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
   const [searchParams] = useSearchParams();
   const redirect = resolveRedirectAfterAuth(searchParams.get("returnTo"), redirectAfterAuth);
 
-  // Email OTP flow: "signIn" → enter email → "otp" → enter code → authenticated
-  const [step, setStep] = useState<"signIn" | { email: string }>("signIn");
+  // Email OTP flow: mode "signIn" → enter email → mode "otp" → enter code → authenticated
+  const [mode, setMode] = useState<"signIn" | "otp">("signIn");
+  const [otpEmail, setOtpEmail] = useState("");
   const [otp, setOtp] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -42,7 +43,8 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
     try {
       // Convex Auth: send OTP — provider id is "email-otp"
       await signIn("email-otp", formData);
-      setStep({ email });
+      setOtpEmail(email);
+      setMode("otp");
       setOtp("");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to send verification code.");
@@ -55,7 +57,7 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
   const handleOtpSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
-    formData.set("email", step.email);
+    formData.set("email", otpEmail);
     formData.set("code", otp);
 
     setIsLoading(true);
@@ -127,7 +129,7 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
           </div>
 
           <div className="glass-card rounded-2xl p-8">
-            {step === "signIn" ? (
+            {mode === "signIn" ? (
               <>
                 <div className="text-center mb-8">
                   <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full glass mb-4">
@@ -176,12 +178,12 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                   </div>
                   <h1 className="text-xl font-bold text-[#E8F5EE]">Check your email</h1>
                   <p className="mt-2 text-sm text-[rgba(232,245,238,0.35)]">
-                    We&apos;ve sent a 6-digit code to <span className="text-[#E8F5EE] font-medium">{step.email}</span>
+                    We&apos;ve sent a 6-digit code to <span className="text-[#E8F5EE] font-medium">{otpEmail}</span>
                   </p>
                 </div>
 
                 <form onSubmit={handleOtpSubmit}>
-                  <input type="hidden" name="email" value={step.email} />
+                  <input type="hidden" name="email" value={otpEmail} />
 
                   <div className="flex justify-center gap-2 mb-6">
                     {Array.from({ length: 6 }).map((_, i) => (
@@ -200,7 +202,7 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
 
                   <p className="text-sm text-[rgba(232,245,238,0.35)] text-center mb-6">
                     Didn&apos;t receive a code?{" "}
-                    <button type="button" className="text-[#0E9F6E] font-medium hover:underline" onClick={() => { setStep("signIn"); setError(null); setOtp(""); }}>Try again</button>
+                    <button type="button" className="text-[#0E9F6E] font-medium hover:underline" onClick={() => { setMode("signIn"); setError(null); setOtp(""); }}>Try again</button>
                   </p>
 
                   <button type="submit" className="btn-liquid btn-liquid-solid w-full h-12" disabled={isLoading || otp.length !== 6}>
@@ -210,7 +212,7 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                   </button>
 
                   <button type="button" className="btn-liquid btn-liquid-ghost w-full mt-3 h-10 text-[rgba(232,245,238,0.4)]"
-                    onClick={() => { setStep("signIn"); setError(null); setOtp(""); }} disabled={isLoading}>
+                    onClick={() => { setMode("signIn"); setError(null); setOtp(""); }} disabled={isLoading}>
                     Use different email
                   </button>
                 </form>
