@@ -459,7 +459,7 @@ export function AICopilot({ projectId, onClose, expanded }: AICopilotProps) {
     if (lower.includes("help") || lower.includes("what can you do")) {
       return `I can help you with:\n\n• **Project status** — "What's the project status?"\n• **Next actions** — "What should I work on next?"\n• **Risk analysis** — "Are there any blockers?"\n• **Sprint planning** — "How's the sprint going?"\n• **Task recommendations** — "Suggest task priorities"\n\nTry asking about your project!`;
     }
-    return `I understand you're asking about "${text.slice(0, 50)}${text.length > 50 ? '...' : ''}". I'm currently in local mode — connect the FastAPI backend or Convex AI actions for full intelligence. In the meantime, try asking about project status, next tasks, or risks.`;
+    return `Here's what I can see in your workspace:\n\n• **${taskCount} tasks** tracked, **${doneCount} completed** (${completionRate}% done)${riskCount > 0 ? `\n• **${riskCount} high-risk items** need attention` : ''}\n\nTry asking me about:\n• "What should I work on next?"\n• "What's the project status?"\n• "Are there any blockers?"\n• "How's the sprint going?"`;
   };
 
   // Handle suggestion click
