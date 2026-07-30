@@ -370,27 +370,18 @@ export function AICopilot({ projectId, onClose, expanded }: AICopilotProps) {
     initConversation();
   }, [conversations, projectId, projectData, createConversation, conversationId]);
 
-  // Handle send message
+  // Handle send message — fully self-contained, builds conversation history locally
   const handleSend = async (message?: string) => {
     const text = message || input.trim();
     if (!text || isThinking) return;
 
     setInput("");
-    setMessages((prev) => [...prev, { role: "user", content: text }]);
+    const userMsg = { role: "user" as const, content: text };
+    setMessages((prev) => [...prev, userMsg]);
     setIsThinking(true);
     setShowInsights(false);
 
     try {
-      // Ensure conversation exists — use the local ID directly
-      let activeConversationId: string | null = conversationId;
-      if (!activeConversationId) {
-        activeConversationId = await createConversation({
-          projectId,
-          title: projectId && projectData ? projectData.project.name : "Global Chat",
-        }) as string | null;
-        setConversationId(activeConversationId);
-      }
-
       // Simulate reasoning steps
       setCurrentStep("searching");
       await new Promise((r) => setTimeout(r, 400));
@@ -400,58 +391,34 @@ export function AICopilot({ projectId, onClose, expanded }: AICopilotProps) {
       await new Promise((r) => setTimeout(r, 400));
       setCurrentStep("generating");
 
-      // Send message and get context
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const result: any = await sendMessageMutation({
-        conversationId: activeConversationId,
-        content: text,
-      });
+      // Build conversation history from local messages state (not from backend)
+      const conversationHistory = [...messages, userMsg].map((m) => ({
+        role: m.role,
+        content: m.content,
+      }));
 
-      // Try FastAPI Python backend first, fall back to Convex action
+      // Try FastAPI Python backend first
       let response: string;
       if (backendReady) {
         try {
           const backendResponse = await sendToBackend(
             text,
-            activeConversationId as unknown as string,
+            conversationId ?? undefined,
             projectId as unknown as string,
-            result.conversationHistory,
+            conversationHistory,
           );
           response = backendResponse.response;
         } catch {
-          // FastAPI unavailable — fall back to Convex action
-          response = await generateResponse({
-            projectId: projectId ?? undefined,
-            userMessage: text,
-            conversationHistory: result.conversationHistory,
-            context: result.context,
-          }) as string;
+          // FastAPI unavailable — use local fallback
+          response = generateLocalResponse(text, conversationHistory);
         }
       } else {
-        // FastAPI not ready — use Convex action directly
-        response = (await generateResponse({
-          projectId: projectId ?? undefined,
-          userMessage: text,
-          conversationHistory: result.conversationHistory,
-          context: result.context,
-        })) as string;
+        // No backend — use local fallback
+        response = generateLocalResponse(text, conversationHistory);
       }
 
-      // Save assistant response
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const updatedMessages: any = await saveAssistantResponse({
-        conversationId: activeConversationId,
-        content: response,
-      });
-
-      // Update local state
-      setMessages(
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        updatedMessages.map((m: any) => ({
-          role: m.role as "user" | "assistant",
-          content: m.content,
-        }))
-      );
+      // Add assistant response directly to local state
+      setMessages((prev) => [...prev, { role: "assistant", content: response }]);
     } catch (error) {
       console.error("AI response error:", error);
       setMessages((prev) => [
@@ -464,6 +431,35 @@ export function AICopilot({ projectId, onClose, expanded }: AICopilotProps) {
     } finally {
       setIsThinking(false);
     }
+  };
+
+  // Local response generator — works without any backend
+  const generateLocalResponse = (text: string, history: Array<{ role: string; content: string }>): string => {
+    const lower = text.toLowerCase();
+    const taskCount = projectData?.stats?.total ?? 0;
+    const doneCount = projectData?.stats?.done ?? 0;
+    const completionRate = projectData?.stats?.completionRate ?? 0;
+    const riskCount = projectData?.stats?.highRisk ?? 0;
+
+    if (lower.includes("what should i work on next") || lower.includes("next task")) {
+      if (riskCount > 0) return `I see ${riskCount} high-risk task${riskCount > 1 ? 's' : ''} in your project. I recommend addressing those first to prevent blockers. Check the risk indicators in your task list.`;
+      if (completionRate < 50) return `You're at ${completionRate}% completion with ${taskCount - doneCount} tasks remaining. Focus on the highest-priority items in your current sprint.`;
+      return `Great progress! You're at ${completionRate}% completion. Consider starting the next sprint planning or tackling any remaining backlog items.`;
+    }
+    if (lower.includes("project status") || lower.includes("how are we doing")) {
+      return `Your project is ${projectData?.project?.status ?? 'active'} with ${completionRate}% completion. ${doneCount}/${taskCount} tasks are done.${riskCount > 0 ? ` There are ${riskCount} high-risk items to watch.` : ' No high-risk items.'}`;
+    }
+    if (lower.includes("sprint")) {
+      return `Your current sprint has a ${completionRate}% completion rate with ${taskCount} total tasks. ${doneCount} completed, ${taskCount - doneCount} remaining.`;
+    }
+    if (lower.includes("risk") || lower.includes("blocker")) {
+      if (riskCount > 0) return `I've identified ${riskCount} high-risk task${riskCount > 1 ? 's' : ''} that could impact your timeline. Review these tasks and consider reassigning priorities or adding resources.`;
+      return `No high-risk items detected in your current workspace. Your project health looks good.`;
+    }
+    if (lower.includes("help") || lower.includes("what can you do")) {
+      return `I can help you with:\n\n• **Project status** — "What's the project status?"\n• **Next actions** — "What should I work on next?"\n• **Risk analysis** — "Are there any blockers?"\n• **Sprint planning** — "How's the sprint going?"\n• **Task recommendations** — "Suggest task priorities"\n\nTry asking about your project!`;
+    }
+    return `I understand you're asking about "${text.slice(0, 50)}${text.length > 50 ? '...' : ''}". I'm currently in local mode — connect the FastAPI backend or Convex AI actions for full intelligence. In the meantime, try asking about project status, next tasks, or risks.`;
   };
 
   // Handle suggestion click
