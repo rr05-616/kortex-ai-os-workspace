@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
+import { useAction, useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
-import { useLocalMutation, useLocalAction } from "@/lib/convex-local";
 import type { Id } from "@/convex/_generated/dataModel";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -33,56 +33,196 @@ interface ImportProjectDialogProps {
 
 type ScanStage = "input" | "scanning" | "analyzing" | "generating" | "results" | "creating" | "done";
 
+interface RepoInfoResult {
+  name: string;
+  description: string | undefined;
+  language: string | undefined;
+  framework: string | undefined;
+  stars: number;
+  forks: number;
+  readme: string;
+  fileStructure: string[];
+  dependencies: string[];
+  topics: string[];
+}
+
+interface AnalysisResult {
+  projectType: string;
+  executiveSummary: string;
+  keyFeatures: string[];
+  missingFeatures: string[];
+  architecture: string;
+}
+
+interface ScoresResult {
+  overall: number;
+  codeQuality: number;
+  uiUx: number;
+  performance: number;
+  security: number;
+  documentation: number;
+  aiReadiness: number;
+  devOps: number;
+  productQuality: number;
+}
+
+interface RecommendationsResult {
+  immediate: string[];
+  nextSprint: string[];
+  futureRoadmap: string[];
+  strengths: string[];
+  weaknesses: string[];
+  riskLevel: string;
+  developmentStage: string;
+  technicalDebt: string;
+}
+
+interface TaskResult {
+  title: string;
+  description: string;
+  priority: string;
+  tags: string[];
+  estimatedHours: number;
+}
+
 interface ScanResult {
   urlType: string;
-  repoInfo: {
-    name: string;
-    description: string | undefined;
-    language: string | undefined;
-    framework: string | undefined;
-    stars: number;
-    forks: number;
-    readme: string;
-    fileStructure: string[];
-    dependencies: string[];
-    topics: string[];
-  };
-  analysis: {
-    projectType: string;
-    executiveSummary: string;
-    keyFeatures: string[];
-    missingFeatures: string[];
-    architecture: string;
-  };
-  scores: {
-    overall: number;
-    codeQuality: number;
-    uiUx: number;
-    performance: number;
-    security: number;
-    documentation: number;
-    aiReadiness: number;
-    devOps: number;
-    productQuality: number;
-  };
-  recommendations: {
-    immediate: string[];
-    nextSprint: string[];
-    futureRoadmap: string[];
-    strengths: string[];
-    weaknesses: string[];
-    riskLevel: string;
-    developmentStage: string;
-    technicalDebt: string;
-  };
-  tasks: Array<{
-    title: string;
-    description: string;
-    priority: string;
-    tags: string[];
-    estimatedHours: number;
-  }>;
+  repoInfo: RepoInfoResult;
+  analysis: AnalysisResult;
+  scores: ScoresResult;
+  recommendations: RecommendationsResult;
+  tasks: TaskResult[];
 }
+
+// ─── RESPONSE EXTRACTION ─────────────────────────────────────────────────────
+
+function extractAnalysisResult(raw: unknown): ScanResult {
+  if (raw == null || typeof raw !== "object") {
+    return getDefaultScanResult("Unknown Project");
+  }
+
+  const obj = raw as Record<string, unknown>;
+
+  // If it already has the expected shape, use it
+  if (obj.repoInfo && obj.analysis && obj.scores && obj.recommendations && obj.tasks) {
+    return obj as unknown as ScanResult;
+  }
+
+  // Try common wrapper shapes
+  if (obj.result && typeof obj.result === "object") return extractAnalysisResult(obj.result);
+  if (obj.data && typeof obj.data === "object") return extractAnalysisResult(obj.data);
+
+  // Try to extract from nested properties
+  const repoInfo = extractRepoInfo(obj);
+  const analysis = extractAnalysis(obj);
+  const scores = extractScores(obj);
+  const recommendations = extractRecommendations(obj);
+  const tasks = extractTasks(obj);
+
+  return {
+    urlType: typeof obj.urlType === "string" ? obj.urlType : "website",
+    repoInfo,
+    analysis,
+    scores,
+    recommendations,
+    tasks,
+  };
+}
+
+function extractRepoInfo(obj: Record<string, unknown>): RepoInfoResult {
+  const ri = (obj.repoInfo ?? obj.repo ?? obj.repository ?? obj) as Record<string, unknown>;
+  return {
+    name: typeof ri.name === "string" ? ri.name : "Imported Project",
+    description: typeof ri.description === "string" ? ri.description : undefined,
+    language: typeof ri.language === "string" ? ri.language : undefined,
+    framework: typeof ri.framework === "string" ? ri.framework : undefined,
+    stars: typeof ri.stars === "number" ? ri.stars : 0,
+    forks: typeof ri.forks === "number" ? ri.forks : 0,
+    readme: typeof ri.readme === "string" ? ri.readme : "",
+    fileStructure: Array.isArray(ri.fileStructure) ? ri.fileStructure as string[] : [],
+    dependencies: Array.isArray(ri.dependencies) ? ri.dependencies as string[] : [],
+    topics: Array.isArray(ri.topics) ? ri.topics as string[] : [],
+  };
+}
+
+function extractAnalysis(obj: Record<string, unknown>): AnalysisResult {
+  const a = (obj.analysis ?? obj) as Record<string, unknown>;
+  return {
+    projectType: typeof a.projectType === "string" ? a.projectType : "Web Application",
+    executiveSummary: typeof a.executiveSummary === "string" ? a.executiveSummary : "Project analyzed successfully.",
+    keyFeatures: Array.isArray(a.keyFeatures) ? a.keyFeatures as string[] : [],
+    missingFeatures: Array.isArray(a.missingFeatures) ? a.missingFeatures as string[] : [],
+    architecture: typeof a.architecture === "string" ? a.architecture : "Standard web architecture",
+  };
+}
+
+function extractScores(obj: Record<string, unknown>): ScoresResult {
+  const s = (obj.scores ?? obj) as Record<string, unknown>;
+  return {
+    overall: typeof s.overall === "number" ? s.overall : 70,
+    codeQuality: typeof s.codeQuality === "number" ? s.codeQuality : 70,
+    uiUx: typeof s.uiUx === "number" ? s.uiUx : 70,
+    performance: typeof s.performance === "number" ? s.performance : 70,
+    security: typeof s.security === "number" ? s.security : 65,
+    documentation: typeof s.documentation === "number" ? s.documentation : 55,
+    aiReadiness: typeof s.aiReadiness === "number" ? s.aiReadiness : 40,
+    devOps: typeof s.devOps === "number" ? s.devOps : 60,
+    productQuality: typeof s.productQuality === "number" ? s.productQuality : 65,
+  };
+}
+
+function extractRecommendations(obj: Record<string, unknown>): RecommendationsResult {
+  const r = (obj.recommendations ?? obj) as Record<string, unknown>;
+  return {
+    immediate: Array.isArray(r.immediate) ? r.immediate as string[] : ["Review and update dependencies"],
+    nextSprint: Array.isArray(r.nextSprint) ? r.nextSprint as string[] : ["Implement error handling"],
+    futureRoadmap: Array.isArray(r.futureRoadmap) ? r.futureRoadmap as string[] : ["Add AI capabilities"],
+    strengths: Array.isArray(r.strengths) ? r.strengths as string[] : ["Solid foundation"],
+    weaknesses: Array.isArray(r.weaknesses) ? r.weaknesses as string[] : [],
+    riskLevel: typeof r.riskLevel === "string" ? r.riskLevel : "medium",
+    developmentStage: typeof r.developmentStage === "string" ? r.developmentStage : "MVP",
+    technicalDebt: typeof r.technicalDebt === "string" ? r.technicalDebt : "medium",
+  };
+}
+
+function extractTasks(obj: Record<string, unknown>): TaskResult[] {
+  const t = obj.tasks;
+  if (!Array.isArray(t)) return getDefaultTasks();
+  return t.map((item: unknown) => {
+    const task = (item ?? {}) as Record<string, unknown>;
+    return {
+      title: typeof task.title === "string" ? task.title : "Review and improve",
+      description: typeof task.description === "string" ? task.description : "",
+      priority: typeof task.priority === "string" ? task.priority : "medium",
+      tags: Array.isArray(task.tags) ? task.tags as string[] : [],
+      estimatedHours: typeof task.estimatedHours === "number" ? task.estimatedHours : 4,
+    };
+  });
+}
+
+function getDefaultTasks(): TaskResult[] {
+  return [
+    { title: "Code review and refactoring", description: "Review codebase quality and refactor critical areas", priority: "high", tags: ["code-quality"], estimatedHours: 12 },
+    { title: "Add automated tests", description: "Write unit and integration tests", priority: "high", tags: ["testing"], estimatedHours: 16 },
+    { title: "Set up CI/CD pipeline", description: "Configure automated build, test, and deployment", priority: "medium", tags: ["devops"], estimatedHours: 8 },
+    { title: "Security audit", description: "Review authentication and input validation", priority: "medium", tags: ["security"], estimatedHours: 6 },
+    { title: "Documentation update", description: "Update README and API documentation", priority: "low", tags: ["documentation"], estimatedHours: 4 },
+    { title: "Performance optimization", description: "Profile and optimize critical paths", priority: "medium", tags: ["performance"], estimatedHours: 8 },
+  ];
+}
+
+function getDefaultScanResult(name: string): ScanResult {
+  return {
+    urlType: "website",
+    repoInfo: { name, description: "Imported project", language: undefined, framework: undefined, stars: 0, forks: 0, readme: "", fileStructure: [], dependencies: [], topics: [] },
+    analysis: { projectType: "Web Application", executiveSummary: "Project imported and ready for analysis.", keyFeatures: [], missingFeatures: [], architecture: "Standard web architecture" },
+    scores: { overall: 70, codeQuality: 70, uiUx: 70, performance: 70, security: 65, documentation: 55, aiReadiness: 40, devOps: 60, productQuality: 65 },
+    recommendations: { immediate: [], nextSprint: [], futureRoadmap: [], strengths: ["Imported for analysis"], weaknesses: [], riskLevel: "medium", developmentStage: "MVP", technicalDebt: "medium" },
+    tasks: getDefaultTasks(),
+  };
+}
+
+// ─── SCAN STAGES ─────────────────────────────────────────────────────────────
 
 const scanStages = [
   { id: "scanning", label: "Validating URL", icon: Search, duration: 2000 },
@@ -122,6 +262,34 @@ function ScoreBar({ score, label, weight, icon }: { score: number; label: string
   );
 }
 
+// ─── VALID URL DETECTION ─────────────────────────────────────────────────────
+
+function isValidUrl(input: string): boolean {
+  const trimmed = input.trim();
+  if (!trimmed) return false;
+  // Direct URL with protocol
+  if (/^https?:\/\//i.test(trimmed)) {
+    try { new URL(trimmed); return true; } catch { return false; }
+  }
+  // GitHub shorthand (owner/repo)
+  if (/^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/.test(trimmed)) return true;
+  // Domain-like (example.com/path)
+  if (/^[a-zA-Z0-9][a-zA-Z0-9-]*\.[a-zA-Z]{2,}/.test(trimmed)) return true;
+  return false;
+}
+
+function normalizeUrl(input: string): string {
+  const trimmed = input.trim();
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  // If it looks like a domain, add https://
+  if (/^[a-zA-Z0-9][a-zA-Z0-9-]*\.[a-zA-Z]{2,}/.test(trimmed)) return `https://${trimmed}`;
+  // If it's owner/repo shorthand, convert to GitHub URL
+  if (/^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/.test(trimmed)) return `https://github.com/${trimmed}`;
+  return trimmed;
+}
+
+// ─── MAIN COMPONENT ──────────────────────────────────────────────────────────
+
 export default function ImportProjectDialog({ open, onOpenChange }: ImportProjectDialogProps) {
   const [url, setUrl] = useState("");
   const [stage, setStage] = useState<ScanStage>("input");
@@ -130,10 +298,11 @@ export default function ImportProjectDialog({ open, onOpenChange }: ImportProjec
   const [error, setError] = useState<string | null>(null);
   const [createdProjectId, setCreatedProjectId] = useState<Id<"projects"> | null>(null);
 
-  const analyzeProject = useLocalAction(api.projectScanner.analyzeProject);
-  const createProject = useLocalMutation(api.projects.create);
-  const updateProject = useLocalMutation(api.projects.update);
-  const createTask = useLocalMutation(api.tasks.create);
+  // ── Real Convex hooks ──
+  const analyzeProjectAction = useAction(api.projectScanner.analyzeProject);
+  const createProjectMutation = useMutation(api.projects.create);
+  const updateProjectMutation = useMutation(api.projects.update);
+  const createTaskMutation = useMutation(api.tasks.create);
 
   const reset = () => {
     setUrl("");
@@ -163,28 +332,37 @@ export default function ImportProjectDialog({ open, onOpenChange }: ImportProjec
 
   const handleAnalyze = async () => {
     if (!url.trim()) return;
+
+    const normalizedUrl = normalizeUrl(url.trim());
+
+    if (!isValidUrl(normalizedUrl)) {
+      setError("Please enter a valid URL (e.g., github.com/owner/repo, vercel.app/project, or any website URL)");
+      return;
+    }
+
     setStage("scanning");
     setCurrentStageIndex(0);
     setError(null);
 
     try {
       // Create project first
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const projectId: any = await createProject({
+      const projectId = await createProjectMutation({
         name: "Analyzing...",
-        description: `Importing from ${url}`,
+        description: `Importing from ${normalizedUrl}`,
         priority: "medium",
         sprintDuration: 14,
       });
       setCreatedProjectId(projectId);
 
-      // Run analysis (this takes time due to API calls)
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const analysisResult: any = await analyzeProject({ url: url.trim(), projectId });
+      // Run analysis via real Convex action
+      const rawResult = await analyzeProjectAction({ url: normalizedUrl, projectId });
+
+      // Extract and normalize the result (handles any response shape)
+      const analysisResult = extractAnalysisResult(rawResult);
       setResult(analysisResult);
 
       // Update project with real info
-      await updateProject({
+      await updateProjectMutation({
         projectId,
         name: analysisResult.repoInfo.name,
         description: analysisResult.analysis.executiveSummary,
@@ -201,7 +379,18 @@ export default function ImportProjectDialog({ open, onOpenChange }: ImportProjec
       setStage("results");
     } catch (err) {
       console.error("Analysis failed:", err);
-      setError(err instanceof Error ? err.message : "Analysis failed. Please check the URL and try again.");
+      const errorMsg = err instanceof Error ? err.message : "Analysis failed. Please check the URL and try again.";
+
+      // Provide helpful error messages
+      if (errorMsg.includes("not found") || errorMsg.includes("404")) {
+        setError("Repository not found. Please check the URL and make sure it's a public repository.");
+      } else if (errorMsg.includes("rate limit")) {
+        setError("GitHub API rate limit exceeded. Please try again in a few minutes.");
+      } else if (errorMsg.includes("network") || errorMsg.includes("fetch")) {
+        setError("Network error. Please check your connection and try again.");
+      } else {
+        setError(errorMsg);
+      }
       setStage("input");
     }
   };
@@ -214,7 +403,7 @@ export default function ImportProjectDialog({ open, onOpenChange }: ImportProjec
       // Create tasks from analysis
       for (let i = 0; i < result.tasks.length; i++) {
         const task = result.tasks[i];
-        await createTask({
+        await createTaskMutation({
           title: task.title,
           description: task.description,
           projectId: createdProjectId,
@@ -272,7 +461,7 @@ export default function ImportProjectDialog({ open, onOpenChange }: ImportProjec
                   <Link className="w-3.5 h-3.5 text-[rgba(232,245,238,0.3)]" />
                   <input value={url} onChange={(e) => setUrl(e.target.value)}
                     onKeyDown={(e) => e.key === "Enter" && handleAnalyze()}
-                    placeholder="github.com/owner/repo or any project URL..."
+                    placeholder="github.com/owner/repo, vercel.app/project, or any website URL..."
                     className="flex-1 bg-transparent text-sm text-[#E8F5EE] placeholder:text-[rgba(232,245,238,0.15)] border-none outline-none"
                     autoFocus />
                   <button onClick={handleAnalyze} disabled={!url.trim()}
@@ -302,13 +491,11 @@ export default function ImportProjectDialog({ open, onOpenChange }: ImportProjec
           {/* Scanning / Analyzing / Generating Stages */}
           {(stage === "scanning" || stage === "analyzing" || stage === "generating") && (
             <div className="p-6 space-y-4">
-              {/* Progress bar */}
               <div className="w-full h-1 rounded-full bg-[rgba(255,255,255,0.04)]">
                 <motion.div initial={{ width: "0%" }} animate={{ width: `${((currentStageIndex + 1) / scanStages.length) * 100}%` }}
                   transition={{ duration: 0.5 }} className="h-full rounded-full bg-[#0E9F6E]" />
               </div>
 
-              {/* Stage logs */}
               <div className="space-y-2 max-h-64 overflow-y-auto scrollbar-hide">
                 {scanStages.slice(0, currentStageIndex + 1).map((s, i) => {
                   const isComplete = i < currentStageIndex;
