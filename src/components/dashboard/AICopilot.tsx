@@ -1,14 +1,19 @@
 import { useState, useRef, useEffect, useMemo } from "react";
 import { api } from "@/convex/_generated/api";
-import { useLocalQuery, useLocalMutation, useLocalAction } from "@/lib/convex-local";
+import { useLocalQuery, useLocalMutation } from "@/lib/convex-local";
 import type { Id } from "@/convex/_generated/dataModel";
 import { motion, AnimatePresence } from "framer-motion";
-import { sendToBackend, checkBackendHealth } from "@/lib/backend";
+import {
+  callGemini,
+  buildSystemPrompt,
+  hasGeminiApiKey,
+  setGeminiApiKey,
+} from "@/lib/gemini";
 import {
   Sparkles, X, Bot, CheckCircle2, Search, Brain,
   Database, Activity, AlertTriangle, Lightbulb, TrendingUp,
   Clock, Target, Zap, Loader2,
-  ArrowUp, Globe, GitBranch, BarChart3,
+  ArrowUp, Globe, GitBranch, BarChart3, Settings, Key,
 } from "lucide-react";
 
 // ─── TYPES ───────────────────────────────────────────────────────────────────
@@ -41,6 +46,12 @@ interface GlobalInsightData {
   totalProjects: number; activeProjects: number; totalTasks: number;
   totalDone: number; totalInProgress: number; totalRisk: number;
   totalOverdue: number; globalCompletion: number; insights: Insight[];
+}
+
+interface ConversationMemory {
+  messages: Array<{ role: "user" | "assistant"; content: string }>;
+  lastTopic: string;
+  timestamp: number;
 }
 
 type AgentStep = "searching" | "reading" | "analyzing" | "generating";
@@ -90,18 +101,46 @@ const TYPE_COLORS: Record<string, string> = {
   insight: "bg-purple-500/8 text-purple-400 border-purple-500/15",
 };
 
+const MEMORY_KEY = "kortex_conversation_memory";
+
+// ─── CONVERSATION MEMORY (localStorage) ──────────────────────────────────────
+
+function loadMemory(key: string): ConversationMemory {
+  try {
+    const raw = localStorage.getItem(`${MEMORY_KEY}_${key}`);
+    if (raw) return JSON.parse(raw);
+  } catch { /* ignore */ }
+  return { messages: [], lastTopic: "", timestamp: Date.now() };
+}
+
+function saveMemory(key: string, memory: ConversationMemory): void {
+  try {
+    // Keep only last 20 messages for context window
+    const trimmed = { ...memory, messages: memory.messages.slice(-20), timestamp: Date.now() };
+    localStorage.setItem(`${MEMORY_KEY}_${key}`, JSON.stringify(trimmed));
+  } catch { /* ignore */ }
+}
+
+function extractTopic(messages: Array<{ role: string; content: string }>): string {
+  if (messages.length === 0) return "";
+  const lastUser = [...messages].reverse().find(m => m.role === "user");
+  if (!lastUser) return "";
+  const words = lastUser.content.split(/\s+/).slice(0, 5).join(" ");
+  return words;
+}
+
 // ─── CONTEXT STATUS BAR ──────────────────────────────────────────────────────
 
 function ContextStatus({
   projectId,
   projectData,
   globalData,
-  backendReady,
+  geminiReady,
 }: {
   projectId?: Id<"projects">;
   projectData?: ProjectInsightData | null;
   globalData?: GlobalInsightData | null;
-  backendReady: boolean | null;
+  geminiReady: boolean;
 }) {
   const hasData = projectId ? projectData : globalData;
   if (!hasData) return null;
@@ -115,7 +154,7 @@ function ContextStatus({
           { label: "Sprint", loaded: true, icon: <Activity className="w-2.5 h-2.5" /> },
           { label: "Risks", loaded: true, count: projectData.stats.highRisk, icon: <AlertTriangle className="w-2.5 h-2.5" /> },
           { label: "Memory", loaded: true, icon: <Brain className="w-2.5 h-2.5" /> },
-          { label: "Backend", loaded: backendReady === true, icon: <Database className="w-2.5 h-2.5" /> },
+          { label: "Gemini", loaded: geminiReady, icon: <Sparkles className="w-2.5 h-2.5" /> },
         ]
       : globalData
         ? [
@@ -124,7 +163,7 @@ function ContextStatus({
             { label: "Tasks", loaded: true, count: globalData.totalTasks, icon: <Target className="w-2.5 h-2.5" /> },
             { label: "Analytics", loaded: true, icon: <BarChart3 className="w-2.5 h-2.5" /> },
             { label: "Memory", loaded: true, icon: <Brain className="w-2.5 h-2.5" /> },
-            { label: "Backend", loaded: backendReady === true, icon: <Database className="w-2.5 h-2.5" /> },
+            { label: "Gemini", loaded: geminiReady, icon: <Sparkles className="w-2.5 h-2.5" /> },
           ]
         : [];
 
@@ -163,7 +202,6 @@ function useDynamicSuggestions({
   messages: Array<{ role: "user" | "assistant"; content: string }>;
 }) {
   return useMemo(() => {
-    // Don't show suggestions if user has messages
     if (messages.length > 0) return [];
 
     if (projectId && projectData) {
@@ -173,18 +211,10 @@ function useDynamicSuggestions({
         s.push("Create a sprint plan for this project");
         s.push("What tasks should I create first?");
       } else {
-        if (projectData.stats.highRisk > 0) {
-          s.push("What are the high-risk tasks?");
-        }
-        if (projectData.stats.overdue > 0) {
-          s.push("Which tasks are overdue?");
-        }
-        if (projectData.stats.inProgress === 0 && projectData.stats.todo > 0) {
-          s.push("What should I work on next?");
-        }
-        if (projectData.stage === "Planning") {
-          s.push("Help me plan the next sprint");
-        }
+        if (projectData.stats.highRisk > 0) s.push("What are the high-risk tasks?");
+        if (projectData.stats.overdue > 0) s.push("Which tasks are overdue?");
+        if (projectData.stats.inProgress === 0 && projectData.stats.todo > 0) s.push("What should I work on next?");
+        if (projectData.stage === "Planning") s.push("Help me plan the next sprint");
         s.push("Analyze my project health");
       }
       return s.slice(0, 3);
@@ -196,12 +226,8 @@ function useDynamicSuggestions({
         s.push("How do I create my first project?");
         s.push("What features does KORTEX AI offer?");
       } else {
-        if (globalData.totalRisk > 0) {
-          s.push("Show me all high-risk tasks");
-        }
-        if (globalData.totalOverdue > 0) {
-          s.push("What tasks are overdue?");
-        }
+        if (globalData.totalRisk > 0) s.push("Show me all high-risk tasks");
+        if (globalData.totalOverdue > 0) s.push("What tasks are overdue?");
         s.push("Give me a portfolio overview");
       }
       return s.slice(0, 3);
@@ -264,7 +290,6 @@ function renderMarkdown(text: string): React.ReactNode {
 }
 
 function renderInlineMarkdown(text: string): React.ReactNode {
-  // Handle bold text with ** or __
   const parts = text.split(/(\*\*[^*]+\*\*|__[^_]+__)/g);
   return parts.map((part, i) => {
     if ((part.startsWith("**") && part.endsWith("**")) || (part.startsWith("__") && part.endsWith("__"))) {
@@ -274,7 +299,6 @@ function renderInlineMarkdown(text: string): React.ReactNode {
         </strong>
       );
     }
-    // Handle inline code with `
     const codeParts = part.split(/(`[^`]+`)/g);
     return codeParts.map((codePart, j) => {
       if (codePart.startsWith("`") && codePart.endsWith("`")) {
@@ -289,6 +313,53 @@ function renderInlineMarkdown(text: string): React.ReactNode {
   });
 }
 
+// ─── API KEY INPUT MODAL ─────────────────────────────────────────────────────
+
+function ApiKeyModal({ onSave, onClose }: { onSave: (key: string) => void; onClose: () => void }) {
+  const [key, setKey] = useState("");
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+      <div className="bg-[#0a0f0d] border border-[rgba(14,159,110,0.2)] rounded-2xl p-6 w-[400px] max-w-[90vw]">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-10 h-10 rounded-xl bg-[rgba(14,159,110,0.1)] flex items-center justify-center">
+            <Key className="w-5 h-5 text-[#0E9F6E]" />
+          </div>
+          <div>
+            <h3 className="text-sm font-semibold text-[rgba(232,245,238,0.9)]">Connect Gemini AI</h3>
+            <p className="text-[11px] text-[rgba(232,245,238,0.4)]">Enter your Google Gemini API key to enable AI responses</p>
+          </div>
+        </div>
+        <input
+          type="password"
+          value={key}
+          onChange={(e) => setKey(e.target.value)}
+          placeholder="AIza..."
+          className="w-full px-4 py-3 bg-[rgba(14,159,110,0.04)] border border-[rgba(14,159,110,0.1)] rounded-xl text-[13px] text-[rgba(232,245,238,0.9)] placeholder-[rgba(232,245,238,0.2)] focus:outline-none focus:border-[rgba(14,159,110,0.3)] mb-4"
+          autoFocus
+        />
+        <div className="flex gap-3">
+          <button
+            onClick={onClose}
+            className="flex-1 px-4 py-2.5 rounded-xl bg-[rgba(232,245,238,0.04)] border border-[rgba(232,245,238,0.08)] text-[13px] text-[rgba(232,245,238,0.6)] hover:bg-[rgba(232,245,238,0.08)] transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={() => { if (key.trim()) onSave(key.trim()); }}
+            disabled={!key.trim()}
+            className="flex-1 px-4 py-2.5 rounded-xl bg-[#0E9F6E] text-white text-[13px] font-medium hover:bg-[#0c8a5f] disabled:opacity-50 transition-colors"
+          >
+            Save Key
+          </button>
+        </div>
+        <p className="text-[10px] text-[rgba(232,245,238,0.25)] mt-3 text-center">
+          Get a free key at <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer" className="text-[#0E9F6E] underline">aistudio.google.com/apikey</a>
+        </p>
+      </div>
+    </div>
+  );
+}
+
 // ─── MAIN COMPONENT ──────────────────────────────────────────────────────────
 
 export function AICopilot({ projectId, onClose, expanded }: AICopilotProps) {
@@ -296,136 +367,146 @@ export function AICopilot({ projectId, onClose, expanded }: AICopilotProps) {
   const [messages, setMessages] = useState<Array<{ role: "user" | "assistant"; content: string }>>([]);
   const [isThinking, setIsThinking] = useState(false);
   const [currentStep, setCurrentStep] = useState<AgentStep>("searching");
-  const [conversationId, setConversationId] = useState<string | null>(null);
   const [showInsights, setShowInsights] = useState(true);
+  const [showApiKeyModal, setShowApiKeyModal] = useState(false);
+  const [geminiReady, setGeminiReady] = useState(hasGeminiApiKey());
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Queries
+  // Workspace data from Convex (via local fallbacks for CRUD)
   const projectData = useLocalQuery<ProjectInsightData>(
     api.ai.getProjectInsights,
     projectId ? { projectId } : "skip"
   );
   const globalData = useLocalQuery<GlobalInsightData>(api.ai.getGlobalInsights);
-  const conversations = useLocalQuery<Array<{ _id: string; projectId?: string; messages: Array<{ role: string; content: string }> }>>(api.ai.getConversations);
 
-  // Mutations
-  const createConversation = useLocalMutation(api.ai.createConversation);
-  const sendMessageMutation = useLocalMutation(api.ai.sendMessage);
-  const saveAssistantResponse = useLocalMutation(api.ai.saveAssistantResponse);
+  // Local state mutations
+  const _createConversation = useLocalMutation(api.ai.createConversation);
 
-  // Actions
-  const generateResponse = useLocalAction(api.aiActions.generateResponse);
+  // Memory key
+  const memoryKey = projectId ? `project_${projectId}` : "global";
 
-  // Check backend health on mount
-  const [backendReady, setBackendReady] = useState<boolean | null>(null);
+  // Load conversation history from memory on mount
   useEffect(() => {
-    checkBackendHealth().then(setBackendReady);
-  }, []);
+    const memory = loadMemory(memoryKey);
+    if (memory.messages.length > 0) {
+      setMessages(memory.messages);
+    }
+  }, [memoryKey]);
 
   // Dynamic suggestions
-  const suggestions = useDynamicSuggestions({
-    projectId,
-    projectData,
-    globalData,
-    messages,
-  });
+  const suggestions = useDynamicSuggestions({ projectId, projectData, globalData, messages });
 
-  // Auto-scroll to bottom
+  // Auto-scroll
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isThinking]);
 
-  // Focus input on mount
+  // Focus input
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
 
-  // Initialize conversation
+  // Save conversation to memory when messages change
   useEffect(() => {
-    const initConversation = async () => {
-      if (!conversationId && conversations !== undefined) {
-        const existing = projectId
-          ? conversations.find((c) => c.projectId === projectId)
-          : conversations[0];
+    if (messages.length > 0) {
+      const memory = loadMemory(memoryKey);
+      saveMemory(memoryKey, {
+        messages,
+        lastTopic: extractTopic(messages),
+        timestamp: Date.now(),
+      });
+    }
+  }, [messages, memoryKey]);
 
-        if (existing) {
-          setConversationId(existing._id);
-          setMessages(
-            existing.messages.map((m) => ({
-              role: m.role as "user" | "assistant",
-              content: m.content,
-            }))
-          );
-        } else {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const id: any = await createConversation({
-            projectId,
-            title: projectId && projectData ? projectData.project.name : "Global Chat",
-          });
-          setConversationId(id as string);
-        }
-      }
-    };
-    initConversation();
-  }, [conversations, projectId, projectData, createConversation, conversationId]);
-
-  // Handle send message — fully self-contained, builds conversation history locally
+  // ── THE AUTONOMOUS AI AGENT PIPELINE ──
   const handleSend = async (message?: string) => {
     const text = message || input.trim();
     if (!text || isThinking) return;
 
+    // Check for API key
+    if (!geminiReady) {
+      setShowApiKeyModal(true);
+      return;
+    }
+
     setInput("");
     const userMsg = { role: "user" as const, content: text };
-    setMessages((prev) => [...prev, userMsg]);
+    const allMessages = [...messages, userMsg];
+    setMessages(allMessages);
     setIsThinking(true);
     setShowInsights(false);
 
     try {
-      // Simulate reasoning steps
+      // ── STEP 1: Search workspace ──
       setCurrentStep("searching");
-      await new Promise((r) => setTimeout(r, 400));
+      await new Promise((r) => setTimeout(r, 300));
+
+      // ── STEP 2: Read project data ──
       setCurrentStep("reading");
-      await new Promise((r) => setTimeout(r, 400));
+      await new Promise((r) => setTimeout(r, 300));
+
+      // ── STEP 3: Build context for the LLM ──
       setCurrentStep("analyzing");
-      await new Promise((r) => setTimeout(r, 400));
+      await new Promise((r) => setTimeout(r, 200));
+
+      const tasks = projectData?.stats
+        ? [
+            { title: `Project: ${projectData.project?.name || "Unknown"}`, status: projectData.project?.status || "active", priority: "high", description: `Health: ${projectData.project?.healthScore || 0}/100, Stage: ${projectData.stage || "Unknown"}` },
+          ]
+        : [];
+
+      const systemPrompt = buildSystemPrompt({
+        projectName: projectData?.project?.name || globalData ? "Global Workspace" : undefined,
+        projectStatus: projectData?.project?.status,
+        healthScore: projectData?.project?.healthScore,
+        tasks,
+        completionRate: projectData?.stats?.completionRate ?? globalData?.globalCompletion ?? 0,
+        totalTasks: projectData?.stats?.total ?? globalData?.totalTasks ?? 0,
+        totalDone: projectData?.stats?.done ?? globalData?.totalDone ?? 0,
+        totalInProgress: projectData?.stats?.inProgress ?? globalData?.totalInProgress ?? 0,
+        totalRisk: projectData?.stats?.highRisk ?? globalData?.totalRisk ?? 0,
+        totalOverdue: projectData?.stats?.overdue ?? globalData?.totalOverdue ?? 0,
+        analyses: [],
+        recentMessages: allMessages.slice(-10).map(m => ({ role: m.role, content: m.content })),
+      });
+
+      // ── STEP 4: Call Gemini ──
       setCurrentStep("generating");
 
-      // Build conversation history from local messages state (not from backend)
-      const conversationHistory = [...messages, userMsg].map((m) => ({
+      const conversationHistory = allMessages.slice(0, -1).map(m => ({
         role: m.role,
         content: m.content,
       }));
 
-      // Try FastAPI Python backend first
       let response: string;
-      if (backendReady) {
-        try {
-          const backendResponse = await sendToBackend(
-            text,
-            conversationId ?? undefined,
-            projectId as unknown as string,
-            conversationHistory,
-          );
-          response = backendResponse.response;
-        } catch {
-          // FastAPI unavailable — use local fallback
-          response = generateLocalResponse(text, conversationHistory);
+      try {
+        response = await callGemini({
+          systemPrompt,
+          userMessage: text,
+          conversationHistory,
+        });
+      } catch (error) {
+        const errMsg = error instanceof Error ? error.message : String(error);
+        if (errMsg.includes("NO_API_KEY")) {
+          setShowApiKeyModal(true);
+          setMessages((prev) => prev.slice(0, -1)); // Remove the user message we optimistically added
+          setIsThinking(false);
+          return;
         }
-      } else {
-        // No backend — use local fallback
-        response = generateLocalResponse(text, conversationHistory);
+        throw error;
       }
 
-      // Add assistant response directly to local state
+      // ── STEP 5: Add response ──
       setMessages((prev) => [...prev, { role: "assistant", content: response }]);
     } catch (error) {
       console.error("AI response error:", error);
+      const errorMsg = error instanceof Error ? error.message : "Unknown error";
       setMessages((prev) => [
         ...prev,
         {
           role: "assistant",
-          content: "I encountered an error processing your request. Please try again.",
+          content: `I encountered an error while processing your request: ${errorMsg}. Please check your API key and try again.`,
         },
       ]);
     } finally {
@@ -433,41 +514,10 @@ export function AICopilot({ projectId, onClose, expanded }: AICopilotProps) {
     }
   };
 
-  // Local response generator — works without any backend
-  const generateLocalResponse = (text: string, history: Array<{ role: string; content: string }>): string => {
-    const lower = text.toLowerCase();
-    const taskCount = projectData?.stats?.total ?? 0;
-    const doneCount = projectData?.stats?.done ?? 0;
-    const completionRate = projectData?.stats?.completionRate ?? 0;
-    const riskCount = projectData?.stats?.highRisk ?? 0;
-
-    if (lower.includes("what should i work on next") || lower.includes("next task")) {
-      if (riskCount > 0) return `I see ${riskCount} high-risk task${riskCount > 1 ? 's' : ''} in your project. I recommend addressing those first to prevent blockers. Check the risk indicators in your task list.`;
-      if (completionRate < 50) return `You're at ${completionRate}% completion with ${taskCount - doneCount} tasks remaining. Focus on the highest-priority items in your current sprint.`;
-      return `Great progress! You're at ${completionRate}% completion. Consider starting the next sprint planning or tackling any remaining backlog items.`;
-    }
-    if (lower.includes("project status") || lower.includes("how are we doing")) {
-      return `Your project is ${projectData?.project?.status ?? 'active'} with ${completionRate}% completion. ${doneCount}/${taskCount} tasks are done.${riskCount > 0 ? ` There are ${riskCount} high-risk items to watch.` : ' No high-risk items.'}`;
-    }
-    if (lower.includes("sprint")) {
-      return `Your current sprint has a ${completionRate}% completion rate with ${taskCount} total tasks. ${doneCount} completed, ${taskCount - doneCount} remaining.`;
-    }
-    if (lower.includes("risk") || lower.includes("blocker")) {
-      if (riskCount > 0) return `I've identified ${riskCount} high-risk task${riskCount > 1 ? 's' : ''} that could impact your timeline. Review these tasks and consider reassigning priorities or adding resources.`;
-      return `No high-risk items detected in your current workspace. Your project health looks good.`;
-    }
-    if (lower.includes("help") || lower.includes("what can you do")) {
-      return `I can help you with:\n\n• **Project status** — "What's the project status?"\n• **Next actions** — "What should I work on next?"\n• **Risk analysis** — "Are there any blockers?"\n• **Sprint planning** — "How's the sprint going?"\n• **Task recommendations** — "Suggest task priorities"\n\nTry asking about your project!`;
-    }
-    return `Here's what I can see in your workspace:\n\n• **${taskCount} tasks** tracked, **${doneCount} completed** (${completionRate}% done)${riskCount > 0 ? `\n• **${riskCount} high-risk items** need attention` : ''}\n\nTry asking me about:\n• "What should I work on next?"\n• "What's the project status?"\n• "Are there any blockers?"\n• "How's the sprint going?"`;
-  };
-
-  // Handle suggestion click
   const handleSuggestionClick = (suggestion: string) => {
     handleSend(suggestion);
   };
 
-  // Handle key press
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -475,7 +525,11 @@ export function AICopilot({ projectId, onClose, expanded }: AICopilotProps) {
     }
   };
 
-  // Get insight data
+  const handleClearChat = () => {
+    setMessages([]);
+    localStorage.removeItem(`${MEMORY_KEY}_${memoryKey}`);
+  };
+
   const insightData = projectId ? projectData : globalData;
   const insights = insightData?.insights ?? [];
 
@@ -496,22 +550,40 @@ export function AICopilot({ projectId, onClose, expanded }: AICopilotProps) {
               KORTEX AI Agent
             </h3>
             <p className="text-[10px] text-[rgba(232,245,238,0.3)]">
-              Autonomous Workspace Intelligence
+              {geminiReady ? "Autonomous Workspace Intelligence" : "Connect Gemini API to enable AI"}
             </p>
           </div>
         </div>
-        {onClose && (
+        <div className="flex items-center gap-1">
           <button
-            onClick={onClose}
+            onClick={() => setShowApiKeyModal(true)}
             className="p-2 rounded-lg hover:bg-[rgba(14,159,110,0.08)] transition-colors"
+            title="Configure API Key"
           >
-            <X className="w-4 h-4 text-[rgba(232,245,238,0.4)]" />
+            <Settings className="w-4 h-4 text-[rgba(232,245,238,0.4)]" />
           </button>
-        )}
+          {messages.length > 0 && (
+            <button
+              onClick={handleClearChat}
+              className="p-2 rounded-lg hover:bg-[rgba(14,159,110,0.08)] transition-colors"
+              title="Clear conversation"
+            >
+              <Zap className="w-4 h-4 text-[rgba(232,245,238,0.4)]" />
+            </button>
+          )}
+          {onClose && (
+            <button
+              onClick={onClose}
+              className="p-2 rounded-lg hover:bg-[rgba(14,159,110,0.08)] transition-colors"
+            >
+              <X className="w-4 h-4 text-[rgba(232,245,238,0.4)]" />
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Context Status */}
-      <ContextStatus projectId={projectId} projectData={projectData} globalData={globalData} backendReady={backendReady} />
+      <ContextStatus projectId={projectId} projectData={projectData} globalData={globalData} geminiReady={geminiReady} />
 
       {/* Messages Area */}
       <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
@@ -529,8 +601,18 @@ export function AICopilot({ projectId, onClose, expanded }: AICopilotProps) {
               Workspace Intelligence Active
             </h4>
             <p className="text-sm text-[rgba(232,245,238,0.4)] max-w-xs mx-auto">
-              I investigate your entire workspace before answering. Ask me anything about your projects, tasks, or architecture.
+              {geminiReady
+                ? "I investigate your entire workspace before answering. Ask me anything about your projects, tasks, or architecture."
+                : "Connect your Gemini API key to enable AI-powered workspace intelligence."}
             </p>
+            {!geminiReady && (
+              <button
+                onClick={() => setShowApiKeyModal(true)}
+                className="mt-4 px-4 py-2 rounded-xl bg-[#0E9F6E] text-white text-[13px] hover:bg-[#0c8a5f] transition-colors"
+              >
+                Connect Gemini API
+              </button>
+            )}
           </motion.div>
         )}
 
@@ -641,8 +723,8 @@ export function AICopilot({ projectId, onClose, expanded }: AICopilotProps) {
               type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              onKeyPress={handleKeyPress}
-              placeholder="Ask about your workspace..."
+              onKeyDown={handleKeyPress}
+              placeholder={geminiReady ? "Ask about your workspace..." : "Connect Gemini API first..."}
               disabled={isThinking}
               className="w-full px-4 py-3 bg-[rgba(14,159,110,0.04)] border border-[rgba(14,159,110,0.1)] rounded-xl text-[13px] text-[rgba(232,245,238,0.9)] placeholder-[rgba(232,245,238,0.2)] focus:outline-none focus:border-[rgba(14,159,110,0.3)] disabled:opacity-50"
             />
@@ -656,6 +738,18 @@ export function AICopilot({ projectId, onClose, expanded }: AICopilotProps) {
           </button>
         </div>
       </div>
+
+      {/* API Key Modal */}
+      {showApiKeyModal && (
+        <ApiKeyModal
+          onSave={(key) => {
+            setGeminiApiKey(key);
+            setGeminiReady(true);
+            setShowApiKeyModal(false);
+          }}
+          onClose={() => setShowApiKeyModal(false)}
+        />
+      )}
     </div>
   );
 }
