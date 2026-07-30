@@ -1,19 +1,13 @@
 import { useState, useRef, useEffect, useMemo } from "react";
 import { api } from "@/convex/_generated/api";
-import { useLocalQuery, useLocalMutation } from "@/lib/convex-local";
+import { useLocalQuery, useLocalMutation, useLocalAction } from "@/lib/convex-local";
 import type { Id } from "@/convex/_generated/dataModel";
 import { motion, AnimatePresence } from "framer-motion";
-import {
-  callGemini,
-  buildSystemPrompt,
-  hasGeminiApiKey,
-  setGeminiApiKey,
-} from "@/lib/gemini";
 import {
   Sparkles, X, Bot, CheckCircle2, Search, Brain,
   Database, Activity, AlertTriangle, Lightbulb, TrendingUp,
   Clock, Target, Zap, Loader2,
-  ArrowUp, Globe, GitBranch, BarChart3, Settings, Key,
+  ArrowUp, Globe, GitBranch, BarChart3,
 } from "lucide-react";
 
 // ─── TYPES ───────────────────────────────────────────────────────────────────
@@ -46,12 +40,6 @@ interface GlobalInsightData {
   totalProjects: number; activeProjects: number; totalTasks: number;
   totalDone: number; totalInProgress: number; totalRisk: number;
   totalOverdue: number; globalCompletion: number; insights: Insight[];
-}
-
-interface ConversationMemory {
-  messages: Array<{ role: "user" | "assistant"; content: string }>;
-  lastTopic: string;
-  timestamp: number;
 }
 
 type AgentStep = "searching" | "reading" | "analyzing" | "generating";
@@ -101,9 +89,15 @@ const TYPE_COLORS: Record<string, string> = {
   insight: "bg-purple-500/8 text-purple-400 border-purple-500/15",
 };
 
+// ─── CONVERSATION MEMORY (localStorage) ──────────────────────────────────────
+
 const MEMORY_KEY = "kortex_conversation_memory";
 
-// ─── CONVERSATION MEMORY (localStorage) ──────────────────────────────────────
+interface ConversationMemory {
+  messages: Array<{ role: "user" | "assistant"; content: string }>;
+  lastTopic: string;
+  timestamp: number;
+}
 
 function loadMemory(key: string): ConversationMemory {
   try {
@@ -115,7 +109,6 @@ function loadMemory(key: string): ConversationMemory {
 
 function saveMemory(key: string, memory: ConversationMemory): void {
   try {
-    // Keep only last 20 messages for context window
     const trimmed = { ...memory, messages: memory.messages.slice(-20), timestamp: Date.now() };
     localStorage.setItem(`${MEMORY_KEY}_${key}`, JSON.stringify(trimmed));
   } catch { /* ignore */ }
@@ -125,8 +118,7 @@ function extractTopic(messages: Array<{ role: string; content: string }>): strin
   if (messages.length === 0) return "";
   const lastUser = [...messages].reverse().find(m => m.role === "user");
   if (!lastUser) return "";
-  const words = lastUser.content.split(/\s+/).slice(0, 5).join(" ");
-  return words;
+  return lastUser.content.split(/\s+/).slice(0, 5).join(" ");
 }
 
 // ─── CONTEXT STATUS BAR ──────────────────────────────────────────────────────
@@ -135,12 +127,12 @@ function ContextStatus({
   projectId,
   projectData,
   globalData,
-  geminiReady,
+  backendReady,
 }: {
   projectId?: Id<"projects">;
   projectData?: ProjectInsightData | null;
   globalData?: GlobalInsightData | null;
-  geminiReady: boolean;
+  backendReady: boolean;
 }) {
   const hasData = projectId ? projectData : globalData;
   if (!hasData) return null;
@@ -154,7 +146,7 @@ function ContextStatus({
           { label: "Sprint", loaded: true, icon: <Activity className="w-2.5 h-2.5" /> },
           { label: "Risks", loaded: true, count: projectData.stats.highRisk, icon: <AlertTriangle className="w-2.5 h-2.5" /> },
           { label: "Memory", loaded: true, icon: <Brain className="w-2.5 h-2.5" /> },
-          { label: "Gemini", loaded: geminiReady, icon: <Sparkles className="w-2.5 h-2.5" /> },
+          { label: "Backend", loaded: backendReady, icon: <Sparkles className="w-2.5 h-2.5" /> },
         ]
       : globalData
         ? [
@@ -163,7 +155,7 @@ function ContextStatus({
             { label: "Tasks", loaded: true, count: globalData.totalTasks, icon: <Target className="w-2.5 h-2.5" /> },
             { label: "Analytics", loaded: true, icon: <BarChart3 className="w-2.5 h-2.5" /> },
             { label: "Memory", loaded: true, icon: <Brain className="w-2.5 h-2.5" /> },
-            { label: "Gemini", loaded: geminiReady, icon: <Sparkles className="w-2.5 h-2.5" /> },
+            { label: "Backend", loaded: backendReady, icon: <Sparkles className="w-2.5 h-2.5" /> },
           ]
         : [];
 
@@ -313,53 +305,6 @@ function renderInlineMarkdown(text: string): React.ReactNode {
   });
 }
 
-// ─── API KEY INPUT MODAL ─────────────────────────────────────────────────────
-
-function ApiKeyModal({ onSave, onClose }: { onSave: (key: string) => void; onClose: () => void }) {
-  const [key, setKey] = useState("");
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-      <div className="bg-[#0a0f0d] border border-[rgba(14,159,110,0.2)] rounded-2xl p-6 w-[400px] max-w-[90vw]">
-        <div className="flex items-center gap-3 mb-4">
-          <div className="w-10 h-10 rounded-xl bg-[rgba(14,159,110,0.1)] flex items-center justify-center">
-            <Key className="w-5 h-5 text-[#0E9F6E]" />
-          </div>
-          <div>
-            <h3 className="text-sm font-semibold text-[rgba(232,245,238,0.9)]">Connect Gemini AI</h3>
-            <p className="text-[11px] text-[rgba(232,245,238,0.4)]">Enter your Google Gemini API key to enable AI responses</p>
-          </div>
-        </div>
-        <input
-          type="password"
-          value={key}
-          onChange={(e) => setKey(e.target.value)}
-          placeholder="AIza..."
-          className="w-full px-4 py-3 bg-[rgba(14,159,110,0.04)] border border-[rgba(14,159,110,0.1)] rounded-xl text-[13px] text-[rgba(232,245,238,0.9)] placeholder-[rgba(232,245,238,0.2)] focus:outline-none focus:border-[rgba(14,159,110,0.3)] mb-4"
-          autoFocus
-        />
-        <div className="flex gap-3">
-          <button
-            onClick={onClose}
-            className="flex-1 px-4 py-2.5 rounded-xl bg-[rgba(232,245,238,0.04)] border border-[rgba(232,245,238,0.08)] text-[13px] text-[rgba(232,245,238,0.6)] hover:bg-[rgba(232,245,238,0.08)] transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={() => { if (key.trim()) onSave(key.trim()); }}
-            disabled={!key.trim()}
-            className="flex-1 px-4 py-2.5 rounded-xl bg-[#0E9F6E] text-white text-[13px] font-medium hover:bg-[#0c8a5f] disabled:opacity-50 transition-colors"
-          >
-            Save Key
-          </button>
-        </div>
-        <p className="text-[10px] text-[rgba(232,245,238,0.25)] mt-3 text-center">
-          Get a free key at <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer" className="text-[#0E9F6E] underline">aistudio.google.com/apikey</a>
-        </p>
-      </div>
-    </div>
-  );
-}
-
 // ─── MAIN COMPONENT ──────────────────────────────────────────────────────────
 
 export function AICopilot({ projectId, onClose, expanded }: AICopilotProps) {
@@ -368,20 +313,24 @@ export function AICopilot({ projectId, onClose, expanded }: AICopilotProps) {
   const [isThinking, setIsThinking] = useState(false);
   const [currentStep, setCurrentStep] = useState<AgentStep>("searching");
   const [showInsights, setShowInsights] = useState(true);
-  const [showApiKeyModal, setShowApiKeyModal] = useState(false);
-  const [geminiReady, setGeminiReady] = useState(hasGeminiApiKey());
+  const [conversationId, setConversationId] = useState<Id<"aiConversations"> | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Workspace data from Convex (via local fallbacks for CRUD)
+  // ── Convex queries for workspace data ──
   const projectData = useLocalQuery<ProjectInsightData>(
     api.ai.getProjectInsights,
     projectId ? { projectId } : "skip"
   );
   const globalData = useLocalQuery<GlobalInsightData>(api.ai.getGlobalInsights);
 
-  // Local state mutations
-  const _createConversation = useLocalMutation(api.ai.createConversation);
+  // ── Convex mutations ──
+  const createConversation = useLocalMutation(api.ai.createConversation);
+  const sendMessageMutation = useLocalMutation(api.ai.sendMessage);
+  const saveAssistantResponse = useLocalMutation(api.ai.saveAssistantResponse);
+
+  // ── Convex action for AI response ──
+  const generateResponse = useLocalAction(api.aiActions.generateResponse);
 
   // Memory key
   const memoryKey = projectId ? `project_${projectId}` : "global";
@@ -410,7 +359,6 @@ export function AICopilot({ projectId, onClose, expanded }: AICopilotProps) {
   // Save conversation to memory when messages change
   useEffect(() => {
     if (messages.length > 0) {
-      const memory = loadMemory(memoryKey);
       saveMemory(memoryKey, {
         messages,
         lastTopic: extractTopic(messages),
@@ -424,12 +372,6 @@ export function AICopilot({ projectId, onClose, expanded }: AICopilotProps) {
     const text = message || input.trim();
     if (!text || isThinking) return;
 
-    // Check for API key
-    if (!geminiReady) {
-      setShowApiKeyModal(true);
-      return;
-    }
-
     setInput("");
     const userMsg = { role: "user" as const, content: text };
     const allMessages = [...messages, userMsg];
@@ -438,76 +380,69 @@ export function AICopilot({ projectId, onClose, expanded }: AICopilotProps) {
     setShowInsights(false);
 
     try {
-      // ── STEP 1: Search workspace ──
+      // ── STEP 1: Create conversation if needed ──
       setCurrentStep("searching");
-      await new Promise((r) => setTimeout(r, 300));
-
-      // ── STEP 2: Read project data ──
-      setCurrentStep("reading");
-      await new Promise((r) => setTimeout(r, 300));
-
-      // ── STEP 3: Build context for the LLM ──
-      setCurrentStep("analyzing");
-      await new Promise((r) => setTimeout(r, 200));
-
-      const tasks = projectData?.stats
-        ? [
-            { title: `Project: ${projectData.project?.name || "Unknown"}`, status: projectData.project?.status || "active", priority: "high", description: `Health: ${projectData.project?.healthScore || 0}/100, Stage: ${projectData.stage || "Unknown"}` },
-          ]
-        : [];
-
-      const systemPrompt = buildSystemPrompt({
-        projectName: projectData?.project?.name || globalData ? "Global Workspace" : undefined,
-        projectStatus: projectData?.project?.status,
-        healthScore: projectData?.project?.healthScore,
-        tasks,
-        completionRate: projectData?.stats?.completionRate ?? globalData?.globalCompletion ?? 0,
-        totalTasks: projectData?.stats?.total ?? globalData?.totalTasks ?? 0,
-        totalDone: projectData?.stats?.done ?? globalData?.totalDone ?? 0,
-        totalInProgress: projectData?.stats?.inProgress ?? globalData?.totalInProgress ?? 0,
-        totalRisk: projectData?.stats?.highRisk ?? globalData?.totalRisk ?? 0,
-        totalOverdue: projectData?.stats?.overdue ?? globalData?.totalOverdue ?? 0,
-        analyses: [],
-        recentMessages: allMessages.slice(-10).map(m => ({ role: m.role, content: m.content })),
-      });
-
-      // ── STEP 4: Call Gemini ──
-      setCurrentStep("generating");
-
-      const conversationHistory = allMessages.slice(0, -1).map(m => ({
-        role: m.role,
-        content: m.content,
-      }));
-
-      let response: string;
-      try {
-        response = await callGemini({
-          systemPrompt,
-          userMessage: text,
-          conversationHistory,
+      let convId = conversationId;
+      if (!convId) {
+        const newConvId = await createConversation({
+          projectId: projectId ?? undefined,
+          title: text.slice(0, 50),
         });
-      } catch (error) {
-        const errMsg = error instanceof Error ? error.message : String(error);
-        if (errMsg.includes("NO_API_KEY")) {
-          setShowApiKeyModal(true);
-          setMessages((prev) => prev.slice(0, -1)); // Remove the user message we optimistically added
-          setIsThinking(false);
-          return;
-        }
-        throw error;
+        convId = newConvId as Id<"aiConversations">;
+        setConversationId(convId);
       }
 
-      // ── STEP 5: Add response ──
-      setMessages((prev) => [...prev, { role: "assistant", content: response }]);
+      // ── STEP 2: Send message and gather workspace context ──
+      setCurrentStep("reading");
+      const sendResult = await sendMessageMutation({
+        conversationId: convId,
+        content: text,
+      }) as { conversationHistory: Array<{ role: string; content: string }>; context: Record<string, unknown> };
+
+      // ── STEP 3: Call the AI backend action with full context ──
+      setCurrentStep("analyzing");
+      const aiResponse = await generateResponse({
+        projectId: projectId ?? undefined,
+        userMessage: text,
+        conversationHistory: sendResult.conversationHistory,
+        context: sendResult.context,
+      }) as string;
+
+      // ── STEP 4: Save the AI response ──
+      setCurrentStep("generating");
+      const responseText = typeof aiResponse === "string" ? aiResponse : String(aiResponse);
+
+      if (responseText && responseText.length > 0) {
+        await saveAssistantResponse({
+          conversationId: convId,
+          content: responseText,
+        });
+        setMessages((prev) => [...prev, { role: "assistant", content: responseText }]);
+      } else {
+        setMessages((prev) => [...prev, {
+          role: "assistant",
+          content: "I wasn't able to generate a response. Please try again.",
+        }]);
+      }
     } catch (error) {
       console.error("AI response error:", error);
       const errorMsg = error instanceof Error ? error.message : "Unknown error";
+
+      // Provide a helpful error message without exposing internals
+      let friendlyError = "I encountered an issue processing your request. ";
+      if (errorMsg.includes("not authenticated") || errorMsg.includes("Not authenticated")) {
+        friendlyError += "Please make sure you're signed in and try again.";
+      } else if (errorMsg.includes("network") || errorMsg.includes("fetch")) {
+        friendlyError += "There seems to be a connection issue. Please check your network and try again.";
+      } else if (errorMsg.includes("GEMINI") || errorMsg.includes("API key")) {
+        friendlyError += "The AI service is temporarily unavailable. Please try again in a moment.";
+      } else {
+        friendlyError += "Please try again or rephrase your question.";
+      }
+
       setMessages((prev) => [
         ...prev,
-        {
-          role: "assistant",
-          content: `I encountered an error while processing your request: ${errorMsg}. Please check your API key and try again.`,
-        },
+        { role: "assistant", content: friendlyError },
       ]);
     } finally {
       setIsThinking(false);
@@ -527,11 +462,13 @@ export function AICopilot({ projectId, onClose, expanded }: AICopilotProps) {
 
   const handleClearChat = () => {
     setMessages([]);
+    setConversationId(null);
     localStorage.removeItem(`${MEMORY_KEY}_${memoryKey}`);
   };
 
   const insightData = projectId ? projectData : globalData;
   const insights = insightData?.insights ?? [];
+  const backendReady = true; // Convex backend is always available
 
   return (
     <div
@@ -550,18 +487,11 @@ export function AICopilot({ projectId, onClose, expanded }: AICopilotProps) {
               KORTEX AI Agent
             </h3>
             <p className="text-[10px] text-[rgba(232,245,238,0.3)]">
-              {geminiReady ? "Autonomous Workspace Intelligence" : "Connect Gemini API to enable AI"}
+              Autonomous Workspace Intelligence
             </p>
           </div>
         </div>
         <div className="flex items-center gap-1">
-          <button
-            onClick={() => setShowApiKeyModal(true)}
-            className="p-2 rounded-lg hover:bg-[rgba(14,159,110,0.08)] transition-colors"
-            title="Configure API Key"
-          >
-            <Settings className="w-4 h-4 text-[rgba(232,245,238,0.4)]" />
-          </button>
           {messages.length > 0 && (
             <button
               onClick={handleClearChat}
@@ -583,7 +513,7 @@ export function AICopilot({ projectId, onClose, expanded }: AICopilotProps) {
       </div>
 
       {/* Context Status */}
-      <ContextStatus projectId={projectId} projectData={projectData} globalData={globalData} geminiReady={geminiReady} />
+      <ContextStatus projectId={projectId} projectData={projectData} globalData={globalData} backendReady={backendReady} />
 
       {/* Messages Area */}
       <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
@@ -601,18 +531,8 @@ export function AICopilot({ projectId, onClose, expanded }: AICopilotProps) {
               Workspace Intelligence Active
             </h4>
             <p className="text-sm text-[rgba(232,245,238,0.4)] max-w-xs mx-auto">
-              {geminiReady
-                ? "I investigate your entire workspace before answering. Ask me anything about your projects, tasks, or architecture."
-                : "Connect your Gemini API key to enable AI-powered workspace intelligence."}
+              I investigate your entire workspace before answering. Ask me anything about your projects, tasks, or architecture.
             </p>
-            {!geminiReady && (
-              <button
-                onClick={() => setShowApiKeyModal(true)}
-                className="mt-4 px-4 py-2 rounded-xl bg-[#0E9F6E] text-white text-[13px] hover:bg-[#0c8a5f] transition-colors"
-              >
-                Connect Gemini API
-              </button>
-            )}
           </motion.div>
         )}
 
@@ -724,7 +644,7 @@ export function AICopilot({ projectId, onClose, expanded }: AICopilotProps) {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyPress}
-              placeholder={geminiReady ? "Ask about your workspace..." : "Connect Gemini API first..."}
+              placeholder="Ask about your workspace..."
               disabled={isThinking}
               className="w-full px-4 py-3 bg-[rgba(14,159,110,0.04)] border border-[rgba(14,159,110,0.1)] rounded-xl text-[13px] text-[rgba(232,245,238,0.9)] placeholder-[rgba(232,245,238,0.2)] focus:outline-none focus:border-[rgba(14,159,110,0.3)] disabled:opacity-50"
             />
@@ -738,18 +658,6 @@ export function AICopilot({ projectId, onClose, expanded }: AICopilotProps) {
           </button>
         </div>
       </div>
-
-      {/* API Key Modal */}
-      {showApiKeyModal && (
-        <ApiKeyModal
-          onSave={(key) => {
-            setGeminiApiKey(key);
-            setGeminiReady(true);
-            setShowApiKeyModal(false);
-          }}
-          onClose={() => setShowApiKeyModal(false)}
-        />
-      )}
     </div>
   );
 }
