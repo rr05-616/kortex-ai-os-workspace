@@ -215,7 +215,8 @@ export type ToolName =
   | "searchWorkspace"
   | "createTask"
   | "updateTask"
-  | "createSprint";
+  | "createSprint"
+  | "navigateTo";
 
 export interface ToolDefinition {
   name: ToolName;

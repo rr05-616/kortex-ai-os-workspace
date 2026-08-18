@@ -21,10 +21,11 @@ export type {
   SprintData,
   ProjectStats,
   AnalysisData,
-  SearchResult,
   ToolDefinition,
   ToolName,
 } from "./types";
+
+export type { SearchResult } from "./tools";
 
 // Agent pipeline
 export { runAgentPipeline, type AgentInput, type AgentOutput } from "./agent";

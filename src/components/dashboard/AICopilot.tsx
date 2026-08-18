@@ -711,7 +711,7 @@ export function AICopilot({ projectId, onClose, expanded }: AICopilotProps) {
           responseText = parsed.message || responseText;
 
           // Handle navigation actions
-          if (parsed.action?.type === "navigate" && parsed.action.data.route) {
+          if (parsed.action && parsed.action.type === "navigate" && parsed.action.data.route) {
             const route = String(parsed.action.data.route);
             const routePath = ROUTE_MAP[route] || "/dashboard";
             // Show the message then navigate after a brief delay
@@ -720,7 +720,7 @@ export function AICopilot({ projectId, onClose, expanded }: AICopilotProps) {
             }
             setMessages((prev) => [...prev, { 
               role: "assistant", 
-              content: `🗺️ Navigating to ${parsed.action.data.route || route}...` 
+              content: `🗺️ Navigating to ${String(parsed.action?.data?.route ?? route)}...` 
             }]);
             setTimeout(() => navigate(routePath), 800);
             await convexSaveResponse({ conversationId: convId, content: responseText });
@@ -729,7 +729,7 @@ export function AICopilot({ projectId, onClose, expanded }: AICopilotProps) {
           }
 
           // Handle task creation actions
-          if (parsed.action?.type === "create_task" && parsed.action.data.title) {
+          if (parsed.action && parsed.action.type === "create_task" && parsed.action.data.title) {
             setPendingAction({ type: "create_task", data: parsed.action.data });
           }
 
@@ -786,10 +786,19 @@ export function AICopilot({ projectId, onClose, expanded }: AICopilotProps) {
 
     if (pendingAction.type === "create_task") {
       const data = pendingAction.data;
+      const targetProjectId = (data.projectId as Id<"projects">) ?? projectId;
+      if (!targetProjectId) {
+        setMessages((prev) => [...prev, {
+          role: "assistant",
+          content: "I need a project to add this task to. Please open a project first, then try again.",
+        }]);
+        setPendingAction(null);
+        return;
+      }
       try {
         await createTaskMutation({
           title: String(data.title),
-          projectId: (data.projectId as Id<"projects">) || projectId || "",
+          projectId: targetProjectId,
           priority: (data.priority as "critical" | "high" | "medium" | "low") || "medium",
           status: "backlog",
           description: data.description ? String(data.description) : undefined,
@@ -990,11 +999,11 @@ export function AICopilot({ projectId, onClose, expanded }: AICopilotProps) {
                   <p className="text-[12px] text-[rgba(232,245,238,0.5)] mb-2">
                     Create task: <strong className="text-[rgba(232,245,238,0.8)]">"{String(pendingAction.data.title)}"</strong>
                   </p>
-                  {pendingAction.data.priority && (
+                  {pendingAction.data.priority ? (
                     <p className="text-[11px] text-[rgba(232,245,238,0.3)] mb-3">
                       Priority: {String(pendingAction.data.priority)}
                     </p>
-                  )}
+                  ) : null}
                   <div className="flex gap-2">
                     <button
                       onClick={handleConfirmAction}
