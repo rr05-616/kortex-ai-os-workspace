@@ -3,11 +3,13 @@ import { useQuery, useMutation, useAction } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { motion, AnimatePresence } from "framer-motion";
+import { useNavigate } from "react-router";
 import {
   Sparkles, X, Bot, CheckCircle2, Search, Brain,
   Database, Activity, AlertTriangle, Lightbulb, TrendingUp,
   Clock, Target, Zap, Loader2,
   ArrowUp, Globe, GitBranch, BarChart3,
+  ExternalLink, FolderKanban, Play, CheckCircle,
 } from "lucide-react";
 
 // ─── TYPES ───────────────────────────────────────────────────────────────────
@@ -130,6 +132,50 @@ const TYPE_COLORS: Record<string, string> = {
   warning: "bg-amber-500/8 text-amber-400 border-amber-500/15",
   suggestion: "bg-blue-500/8 text-blue-400 border-blue-500/15",
   insight: "bg-purple-500/8 text-purple-400 border-purple-500/15",
+};
+
+// ─── RESPONSE PARSING (extract JSON actions from agent) ─────────────────────
+
+interface ParsedResponse {
+  message: string;
+  action?: {
+    type: "create_task" | "update_task" | "assign_task" | "create_sprint" | "navigate";
+    data: Record<string, unknown>;
+  };
+}
+
+function parseAgentResponse(raw: string): ParsedResponse {
+  // Check for JSON action block at the end or inline
+  const jsonPatterns = [
+    /\{\s*"action"\s*:\s*"([^"]+)"\s*,\s*"data"\s*:\s*(\{[^}]+\})\s*\}/,
+    /\{"action":"([^"]+)","data":(\{[^}]+\})\}/,
+  ];
+
+  for (const pattern of jsonPatterns) {
+    const match = raw.match(pattern);
+    if (match) {
+      const actionType = match[1] as "create_task" | "update_task" | "assign_task" | "create_sprint" | "navigate";
+      try {
+        const data = JSON.parse(match[2]);
+        const message = raw.replace(match[0], "").trim();
+        return { message: message || "", action: { type: actionType, data } };
+      } catch {
+        // JSON parse failed, treat as plain text
+      }
+    }
+  }
+
+  return { message: raw };
+}
+
+// ─── NAVIGATION ROUTE MAP ───────────────────────────────────────────────────
+
+const ROUTE_MAP: Record<string, string> = {
+  dashboard: "/dashboard",
+  projects: "/dashboard", // Dashboard with projects view
+  sprints: "/dashboard", // Dashboard with sprints view
+  analytics: "/dashboard", // Dashboard with analytics view
+  settings: "/dashboard",
 };
 
 // ─── CONVERSATION MEMORY (localStorage) ──────────────────────────────────────
@@ -472,7 +518,7 @@ function useDynamicSuggestions({
       return s.slice(0, 3);
     }
 
-    return ["What can you help me with?", "How does KORTEX AI work?", "Show me my workspace"];
+    return ["What needs my attention right now?", "Show me overdue tasks", "Open analytics"];
   }, [projectId, projectData, globalData, messages.length]);
 }
 
@@ -560,14 +606,19 @@ export function AICopilot({ projectId, onClose, expanded }: AICopilotProps) {
   const [isThinking, setIsThinking] = useState(false);
   const [currentStep, setCurrentStep] = useState<AgentStep>("searching");
   const [showInsights, setShowInsights] = useState(true);
+  const [pendingAction, setPendingAction] = useState<{ type: string; data: Record<string, unknown> } | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const navigate = useNavigate();
 
   // ── Real Convex hooks (primary path) ──
   const convexCreateConversation = useMutation(api.ai.createConversation);
   const convexSendMessage = useMutation(api.ai.sendMessage);
   const convexSaveResponse = useMutation(api.ai.saveAssistantResponse);
   const convexGenerateResponse = useAction(api.aiActions.generateResponse);
+
+  // ── Task creation mutation ──
+  const createTaskMutation = useMutation(api.tasks.create);
 
   // ── Workspace data queries (real Convex) ──
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -654,8 +705,35 @@ export function AICopilot({ projectId, onClose, expanded }: AICopilotProps) {
         setCurrentStep("generating");
         responseText = extractResponseText(rawResponse);
 
-        // ── STEP 5: Save the response ──
+        // ── STEP 5: Parse for actions and handle them ──
         if (responseText && responseText.length > 0) {
+          const parsed = parseAgentResponse(responseText);
+          responseText = parsed.message || responseText;
+
+          // Handle navigation actions
+          if (parsed.action?.type === "navigate" && parsed.action.data.route) {
+            const route = String(parsed.action.data.route);
+            const routePath = ROUTE_MAP[route] || "/dashboard";
+            // Show the message then navigate after a brief delay
+            if (responseText) {
+              setMessages((prev) => [...prev, { role: "assistant", content: responseText }]);
+            }
+            setMessages((prev) => [...prev, { 
+              role: "assistant", 
+              content: `🗺️ Navigating to ${parsed.action.data.route || route}...` 
+            }]);
+            setTimeout(() => navigate(routePath), 800);
+            await convexSaveResponse({ conversationId: convId, content: responseText });
+            setIsThinking(false);
+            return;
+          }
+
+          // Handle task creation actions
+          if (parsed.action?.type === "create_task" && parsed.action.data.title) {
+            setPendingAction({ type: "create_task", data: parsed.action.data });
+          }
+
+          // Save the response
           await convexSaveResponse({
             conversationId: convId,
             content: responseText,
@@ -702,6 +780,43 @@ export function AICopilot({ projectId, onClose, expanded }: AICopilotProps) {
   const handleSuggestionClick = (suggestion: string) => {
     handleSend(suggestion);
   };
+
+  const handleConfirmAction = useCallback(async () => {
+    if (!pendingAction) return;
+
+    if (pendingAction.type === "create_task") {
+      const data = pendingAction.data;
+      try {
+        await createTaskMutation({
+          title: String(data.title),
+          projectId: (data.projectId as Id<"projects">) || projectId || "",
+          priority: (data.priority as "critical" | "high" | "medium" | "low") || "medium",
+          status: "backlog",
+          description: data.description ? String(data.description) : undefined,
+        });
+        setMessages((prev) => [...prev, {
+          role: "assistant",
+          content: `✅ Task "${data.title}" created successfully!\n\nIt has been added to your project backlog. You can view and manage it in the project detail view.`,
+        }]);
+      } catch (err) {
+        console.error("Failed to create task:", err);
+        setMessages((prev) => [...prev, {
+          role: "assistant",
+          content: `❌ I couldn't create the task. Please make sure you have a project selected and try again.`,
+        }]);
+      }
+    }
+
+    setPendingAction(null);
+  }, [pendingAction, createTaskMutation, projectId]);
+
+  const handleDismissAction = useCallback(() => {
+    setPendingAction(null);
+    setMessages((prev) => [...prev, {
+      role: "assistant",
+      content: "Action cancelled. Let me know if there's anything else you need.",
+    }]);
+  }, []);
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -777,10 +892,10 @@ export function AICopilot({ projectId, onClose, expanded }: AICopilotProps) {
               <Bot className="w-8 h-8 text-[#0E9F6E]" />
             </div>
             <h4 className="text-lg font-semibold text-[rgba(232,245,238,0.9)] mb-2">
-              Workspace Intelligence Active
+              KORTEX AI Agent
             </h4>
             <p className="text-sm text-[rgba(232,245,238,0.4)] max-w-xs mx-auto">
-              I investigate your entire workspace before answering. Ask me anything about your projects, tasks, or architecture.
+              I understand your workspace, can navigate the app, and perform actions. Ask me anything about your projects, tasks, or what to focus on.
             </p>
           </motion.div>
         )}
@@ -802,7 +917,31 @@ export function AICopilot({ projectId, onClose, expanded }: AICopilotProps) {
                 }`}
               >
                 {msg.role === "assistant" ? (
-                  <div className="space-y-1">{renderMarkdown(msg.content)}</div>
+                  <div className="space-y-1">
+                    {renderMarkdown(msg.content)}
+                    {/* Action buttons for navigation-related messages */}
+                    {msg.content.toLowerCase().includes("navigat") && (
+                      <div className="flex flex-wrap gap-1.5 mt-2 pt-2 border-t border-[rgba(14,159,110,0.08)]">
+                        <button onClick={() => navigate("/dashboard")} className="flex items-center gap-1 px-2 py-1 rounded-md bg-[rgba(14,159,110,0.08)] text-[10px] text-[#0E9F6E] hover:bg-[rgba(14,159,110,0.15)] transition-colors">
+                          <ExternalLink className="w-2.5 h-2.5" />Dashboard
+                        </button>
+                        <button onClick={() => navigate("/dashboard")} className="flex items-center gap-1 px-2 py-1 rounded-md bg-[rgba(14,159,110,0.08)] text-[10px] text-[#0E9F6E] hover:bg-[rgba(14,159,110,0.15)] transition-colors">
+                          <FolderKanban className="w-2.5 h-2.5" />Projects
+                        </button>
+                        <button onClick={() => navigate("/dashboard")} className="flex items-center gap-1 px-2 py-1 rounded-md bg-[rgba(14,159,110,0.08)] text-[10px] text-[#0E9F6E] hover:bg-[rgba(14,159,110,0.15)] transition-colors">
+                          <BarChart3 className="w-2.5 h-2.5" />Analytics
+                        </button>
+                      </div>
+                    )}
+                    {/* Action buttons for task-related messages */}
+                    {(msg.content.toLowerCase().includes("task created") || msg.content.toLowerCase().includes("✅ task")) && (
+                      <div className="flex flex-wrap gap-1.5 mt-2 pt-2 border-t border-[rgba(14,159,110,0.08)]">
+                        <button onClick={() => navigate("/dashboard")} className="flex items-center gap-1 px-2 py-1 rounded-md bg-[rgba(14,159,110,0.08)] text-[10px] text-[#0E9F6E] hover:bg-[rgba(14,159,110,0.15)] transition-colors">
+                          <Play className="w-2.5 h-2.5" />View Project
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 ) : (
                   <p className="text-[13px] leading-relaxed">{msg.content}</p>
                 )}
@@ -828,6 +967,51 @@ export function AICopilot({ projectId, onClose, expanded }: AICopilotProps) {
               <p className="text-[11px] text-[rgba(232,245,238,0.3)]">
                 {AGENT_STEPS[currentStep].sublabel}
               </p>
+            </div>
+          </motion.div>
+        )}
+
+        {/* Action Confirmation Dialog */}
+        {pendingAction && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="flex justify-start"
+          >
+            <div className="bg-[rgba(14,159,110,0.06)] border border-[rgba(14,159,110,0.15)] rounded-2xl px-4 py-3 max-w-[85%]">
+              <div className="flex items-center gap-2 mb-2">
+                <Zap className="w-4 h-4 text-[#0E9F6E]" />
+                <span className="text-xs font-medium text-[rgba(232,245,238,0.7)]">
+                  Confirm Action
+                </span>
+              </div>
+              {pendingAction.type === "create_task" && (
+                <div>
+                  <p className="text-[12px] text-[rgba(232,245,238,0.5)] mb-2">
+                    Create task: <strong className="text-[rgba(232,245,238,0.8)]">"{String(pendingAction.data.title)}"</strong>
+                  </p>
+                  {pendingAction.data.priority && (
+                    <p className="text-[11px] text-[rgba(232,245,238,0.3)] mb-3">
+                      Priority: {String(pendingAction.data.priority)}
+                    </p>
+                  )}
+                  <div className="flex gap-2">
+                    <button
+                      onClick={handleConfirmAction}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#0E9F6E] text-white text-[11px] font-medium hover:bg-[#0c8a5f] transition-colors"
+                    >
+                      <CheckCircle className="w-3 h-3" />
+                      Create Task
+                    </button>
+                    <button
+                      onClick={handleDismissAction}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[rgba(255,255,255,0.05)] text-[rgba(232,245,238,0.4)] text-[11px] font-medium hover:bg-[rgba(255,255,255,0.08)] transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </motion.div>
         )}
