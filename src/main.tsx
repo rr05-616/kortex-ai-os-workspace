@@ -72,7 +72,24 @@ class RootErrorBoundary extends React.Component<
   }
 }
 
-const convex = new ConvexReactClient(import.meta.env.VITE_CONVEX_URL as string);
+const convexUrl = import.meta.env.VITE_CONVEX_URL as string;
+const convex = new ConvexReactClient(convexUrl);
+
+/**
+ * Catch unhandled promise rejections from ConvexAuthProvider's initial
+ * auth HTTP action (e.g. network blocked in WebContainer sandbox).
+ * Without this, the preview crashes to a blank page.
+ */
+if (typeof window !== "undefined") {
+  window.addEventListener("unhandledrejection", (e: PromiseRejectionEvent) => {
+    const reason = e.reason;
+    const msg = reason?.message ?? String(reason);
+    if (msg.includes("Failed to fetch") || msg.includes("NetworkError")) {
+      console.warn("[Kortex] Convex auth network error caught (sandbox):", msg);
+      e.preventDefault(); // prevent the platform from treating this as fatal
+    }
+  });
+}
 
 function RouteSyncer() {
   const location = useLocation();
